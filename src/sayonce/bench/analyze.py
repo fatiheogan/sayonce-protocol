@@ -34,8 +34,9 @@ SERIES = {
     "jsonrpc-zstd": {"color": "#eda100", "marker": "v", "label": "JSON-RPC+zstd"},
     "cbor-full":    {"color": "#e87ba4", "marker": "D", "label": "CBOR, no delta"},
     "json-delta":   {"color": "#008300", "marker": "P", "label": "JSON + delta"},
+    "sayonce-raw":  {"color": "#6250d6", "marker": "X", "label": "SayOnce, no zstd"},
 }
-ORDER = ["jsonrpc", "jsonrpc-gzip", "jsonrpc-zstd", "cbor-full", "json-delta", "sayonce"]
+ORDER = ["jsonrpc", "jsonrpc-gzip", "jsonrpc-zstd", "cbor-full", "json-delta", "sayonce-raw", "sayonce"]
 SURFACE, INK, INK2, GRID = "#fcfcfb", "#2b2b2a", "#6b6a64", "#e6e5e0"
 
 plt.rcParams.update({
@@ -160,19 +161,30 @@ def fig_cumulative(rows, col: str, ylabel: str, title: str, path: Path, systems:
     plt.close(fig)
 
 
+ABLATION_CELLS = [
+    ("jsonrpc", "JSON / full"),
+    ("cbor-full", "CBOR / full"),
+    ("json-delta", "JSON / delta"),
+    ("sayonce-raw", "CBOR / delta"),
+    ("sayonce", "CBOR / delta + zstd"),
+]
+
+
 def fig_ablation(rows, rnd: int, path: Path) -> list[list]:
-    """2x2 ablation: encoding (JSON / CBOR) x context (full / delta), cumulative bytes at rnd."""
-    cells = [("jsonrpc", "JSON", "full"), ("cbor-full", "CBOR", "full"),
-             ("json-delta", "JSON", "delta"), ("sayonce", "CBOR", "delta")]
+    """Ablation: encoding (JSON / CBOR) x context (full / delta), plus frame compression.
+
+    Cumulative bytes at round rnd. The last row is the full protocol."""
+    have = {r["system"] for r in rows}
+    cells = [(s, lab) for s, lab in ABLATION_CELLS if s in have]
     kbs = sorted({r["context_kb"] for r in rows})
-    fig, axes = plt.subplots(1, len(kbs), figsize=(3.4 * len(kbs), 2.6), squeeze=False)
+    fig, axes = plt.subplots(1, len(kbs), figsize=(3.4 * len(kbs) + 0.4, 0.5 * len(cells) + 1.0), squeeze=False)
     table = []
-    labels = [f"{enc} / {ctx}" for _, enc, ctx in cells]
+    labels = [lab for _, lab in cells]
     for i, (ax, kb) in enumerate(zip(axes[0], kbs)):
-        vals = [at_round(rows, s, kb, "cum_bytes", rnd) or 0 for s, _, _ in cells]
+        vals = [at_round(rows, s, kb, "cum_bytes", rnd) or 0 for s, _ in cells]
         ypos = list(range(len(cells)))[::-1]  # first cell on top
         # Dot plot, not bars: bar length means nothing on a log axis.
-        for y, v, (s, _, _) in zip(ypos, vals, cells):
+        for y, v, (s, _) in zip(ypos, vals, cells):
             ax.plot([v], [y], marker="o", markersize=8, color=SERIES[s]["color"],
                     markeredgecolor=SURFACE, markeredgewidth=2, linestyle="none")
             ax.annotate(fmt_bytes(v), xy=(v, y), xytext=(8, 0), textcoords="offset points",
@@ -186,7 +198,7 @@ def fig_ablation(rows, rnd: int, path: Path) -> list[list]:
         ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: fmt_bytes(v)))
         ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
         table.append([kb, *vals])
-    fig.suptitle(f"Ablation: cumulative bytes after {rnd} rounds (encoding / context)", x=0.01, ha="left",
+    fig.suptitle(f"Ablation: cumulative bytes after {rnd} rounds (encoding / context strategy)", x=0.01, ha="left",
                  fontweight="bold", fontsize=11)
     fig.tight_layout()
     fig.savefig(path, dpi=200)
@@ -240,7 +252,7 @@ def fig_network(rows, path: Path) -> dict:
 
 def fig_llm_tokens(rows, kb: int, path: Path) -> tuple[list, list, list]:
     # Not about protocols (identical in every system), so it uses colours no system owns.
-    total_c, uncached_c = "#8a8983", "#6250d6"
+    total_c, uncached_c = "#a8a79f", "#4a4944"  # neutral greys: no system owns these
     xs, prompt = series(rows, "sayonce", kb, "llm_prompt_tokens")
     _, uncached = series(rows, "sayonce", kb, "llm_uncached_tokens")
     cum_p, cum_u, a, b = [], [], 0, 0
@@ -357,17 +369,31 @@ def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict) -> Pat
     # 3. ablation
     if all(s in systems for s in ("jsonrpc", "cbor-full", "json-delta", "sayonce")):
         table = fig_ablation(ideal, R, out / "fig3_ablation.png")
+        names = [s for s, _ in ABLATION_CELLS if s in systems]
         md += [f"## 3. Ablation: what does each idea contribute? ({R} rounds)\n", "![](fig3_ablation.png)\n"]
-        body = []
-        for kb, j, c, jd, s in table:
-            body.append([f"{kb} KB", fmt_bytes(j), fmt_bytes(c), fmt_bytes(jd), fmt_bytes(s),
-                         f"{j / c:.2f}x", f"{j / jd:.1f}x", f"{jd / s:.2f}x", f"{j / s:.1f}x"])
-        md += [md_table(["context", "JSON/full", "CBOR/full", "JSON/delta", "CBOR/delta (SayOnce)",
-                         "binary alone", "delta alone", "binary on top of delta", "both"], body), "",
+        body, factors = [], []
+        for kb, *vals in table:
+            v = dict(zip(names, vals))
+            body.append([f"{kb} KB", *[fmt_bytes(x) for x in vals]])
+            f = [f"{kb} KB", f"{v['jsonrpc'] / v['cbor-full']:.2f}x", f"{v['jsonrpc'] / v['json-delta']:.1f}x"]
+            raw = v.get("sayonce-raw")
+            if raw:
+                f += [f"{v['json-delta'] / raw:.2f}x", f"{raw / v['sayonce']:.2f}x"]
+            else:
+                f += [f"{v['json-delta'] / v['sayonce']:.2f}x"]
+            f.append(f"{v['jsonrpc'] / v['sayonce']:.1f}x")
+            factors.append(f)
+        md += [md_table(["context", *[lab for s, lab in ABLATION_CELLS if s in systems]], body), ""]
+        fh = ["context", "binary alone", "delta alone", "binary on top of delta"]
+        if "sayonce-raw" in systems:
+            fh.append("zstd for large frames on top")
+        fh.append("all together")
+        md += ["Gain factors (bytes of the system before / after adding the idea):\n", md_table(fh, factors), "",
                "Delta is the main gain. Binary encoding alone saves little when the full context is "
                "sent (the context text dominates), but on top of delta it matters more, because the "
                "remaining messages are small and their JSON keys, framing and HTTP headers become "
-               "a large share of each message.\n"]
+               "a large share of each message. Compressing large frames mainly shrinks the one-time "
+               "HELLO, so its share of the total falls as conversations get longer.\n"]
 
     # 4. LLM tokens
     kb_big = kbs[-1]

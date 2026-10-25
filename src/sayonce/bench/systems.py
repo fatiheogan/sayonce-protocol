@@ -7,7 +7,8 @@
 | jsonrpc-zstd   | JSON-RPC + zstd   | HTTP      | full    (B2)      |
 | cbor-full      | CBOR + dictionary | TCP       | full    (B3)      |
 | json-delta     | JSON-RPC          | HTTP      | delta   (B4)      |
-| sayonce        | CBOR + dictionary | TCP       | delta   (S)       |
+| sayonce-raw    | CBOR + dictionary | TCP       | delta   (S, no frame compression) |
+| sayonce        | CBOR + dict + zstd for large frames | TCP | delta (S) |
 
 Every system runs the same server-side handler (e.g. WorkerAgent) and keeps a
 client-side ContextStore, so all of them end with the same shared context and
@@ -28,7 +29,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..codec import Dictionary, Frame
+from ..codec import DEFAULT_COMPRESS_THRESHOLD, Dictionary, Frame
 from ..context import CLIENT, SERVER, ContextStore, ResyncRequired
 from ..messages import DeltaOp, Intent, MessageType, ReplyStatus, _decode_delta, _encode_delta
 from ..session import ClientSession, Handler, Request, Response, Server
@@ -143,10 +144,13 @@ def dumps(obj: Any) -> bytes:
 
 
 class SayOnceSystem(System):
-    name = "sayonce"
+    """The full protocol. compress=False gives the 'sayonce-raw' ablation (no frame compression)."""
+
     full_context = False
 
-    def __init__(self) -> None:
+    def __init__(self, compress: bool = True) -> None:
+        self.name = "sayonce" if compress else "sayonce-raw"
+        self.compress_threshold = DEFAULT_COMPRESS_THRESHOLD if compress else None
         self.server: Server | None = None
         self.client: ClientSession | None = None
         self._reply_delta: list = []
@@ -157,11 +161,12 @@ class SayOnceSystem(System):
             self._reply_delta = list(resp.delta)  # for token accounting only
             return resp
 
-        self.server = await Server(recording, agent_id="agent-b").start()
+        self.server = await Server(recording, agent_id="agent-b", compress_threshold=self.compress_threshold).start()
 
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
         assert self.server
-        self.client = await ClientSession.open("127.0.0.1", self._client_port(), agent_id, ctx, dictionary)
+        self.client = await ClientSession.open("127.0.0.1", self._client_port(), agent_id, ctx, dictionary,
+                                               compress_threshold=self.compress_threshold)
         st = self.client.conn.stats
         return SetupResult(st.bytes_sent, st.bytes_received, info_sent={"context": ctx, "dictionary": dictionary})
 
@@ -307,6 +312,7 @@ class CborFullSystem(System):
 
     async def _on_connection(self, reader, writer) -> None:
         conn = FramedConnection(reader, writer)
+        conn.compress_threshold = None  # B3 isolates binary encoding: no compression
         self._server_conns.append(conn)
         try:
             setup = await conn.recv()
@@ -334,6 +340,7 @@ class CborFullSystem(System):
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
         self.store = ContextStore(ctx, Dictionary(dictionary))
         self.conn = await FramedConnection.connect("127.0.0.1", self._client_port())
+        self.conn.compress_threshold = None
         await self.conn.send(Frame(type=MessageType.HELLO, seq=0, ctx_v=0, body={0: agent_id, 1: dictionary}))
         self._seq = 1
         st = self.conn.stats
@@ -518,6 +525,7 @@ SYSTEMS = {
     "jsonrpc-zstd": lambda: JsonRpcSystem("zstd"),
     "cbor-full": CborFullSystem,
     "json-delta": JsonDeltaSystem,
+    "sayonce-raw": lambda: SayOnceSystem(compress=False),
     "sayonce": SayOnceSystem,
 }
 

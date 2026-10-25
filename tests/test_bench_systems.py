@@ -107,8 +107,11 @@ def test_stateless_setup_costs_nothing(all_runs):
     assert all_runs["jsonrpc"][0].bytes_total == 0
     ctx, _ = sample_context(10)
     ctx_json = len(json.dumps(ctx, separators=(",", ":")))
-    # SayOnce pays for the context once, up front, in its CBOR form
-    assert 0.5 * ctx_json < all_runs["sayonce"][0].bytes_sent < ctx_json
+    # SayOnce pays for the context once, up front, in its CBOR form ...
+    raw = all_runs["sayonce-raw"][0].bytes_sent
+    assert 0.5 * ctx_json < raw < ctx_json
+    # ... and zstd-compressed, which makes that one-time cost a fraction of it
+    assert all_runs["sayonce"][0].bytes_sent < 0.6 * raw
 
 
 def test_delta_json_roundtrip():

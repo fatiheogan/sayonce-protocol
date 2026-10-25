@@ -213,3 +213,61 @@ def test_cbor_smaller_than_json():
     cbor_size = len(encode_frame(snap.to_frame(0, 0, DICT)))
     json_size = len(json.dumps({"jsonrpc": "2.0", "method": "snapshot", "params": {"ctx": CTX}}))
     assert cbor_size < json_size
+
+
+# --------------------------------------------------------------- compression
+
+
+from sayonce.codec import DEFAULT_COMPRESS_THRESHOLD, TAG_ZSTD_FRAME  # noqa: E402
+
+
+def test_large_frames_are_compressed_and_roundtrip():
+    snap = Snapshot(ctx_v=0, ctx={**CTX, "sys": " ".join(f"word{i % 50}" for i in range(2000))}, ctx_h=H)
+    frame = snap.to_frame(0, 0, DICT)
+    plain = encode_frame(frame)
+    packed = encode_frame(frame, DEFAULT_COMPRESS_THRESHOLD)
+    assert len(packed) < len(plain) / 2
+    assert cbor2.loads(packed[4:]).tag == TAG_ZSTD_FRAME
+    [back] = FrameDecoder().feed(packed)
+    assert parse_message(back, DICT) == snap
+
+
+def test_small_frames_stay_uncompressed():
+    frame = Msg(intent=Intent.REQUEST, content="hi", ctx_h=H).to_frame(0, 0, DICT)
+    assert encode_frame(frame, DEFAULT_COMPRESS_THRESHOLD) == encode_frame(frame)
+
+
+def test_compression_only_used_when_smaller():
+    import os
+
+    frame = Msg(intent=Intent.REQUEST, content=os.urandom(4000), ctx_h=H).to_frame(0, 0, DICT)
+    assert encode_frame(frame, 100) == encode_frame(frame)  # random bytes do not compress
+
+
+def test_decoder_rejects_bad_compressed_frames():
+    import zstandard
+
+    cases = [
+        cbor2.CBORTag(TAG_ZSTD_FRAME, "not bytes"),
+        cbor2.CBORTag(TAG_ZSTD_FRAME, b"not zstd at all"),
+        cbor2.CBORTag(TAG_ZSTD_FRAME, zstandard.ZstdCompressor().compress(b"\xff\xff")),  # bad inner CBOR
+        cbor2.CBORTag(TAG_ZSTD_FRAME, zstandard.ZstdCompressor().compress(
+            cbor2.dumps(cbor2.CBORTag(TAG_ZSTD_FRAME, b"")))),  # nested
+    ]
+    for tag in cases:
+        with pytest.raises(ProtocolError):
+            Frame.from_cbor(cbor2.dumps(tag))
+
+
+def test_decoder_rejects_decompression_bomb():
+    import zstandard
+
+    bomb = zstandard.ZstdCompressor().compress(b"\0" * (MAX_FRAME_SIZE + 1))  # tiny on the wire
+    assert len(bomb) < 10_000
+    with pytest.raises(ProtocolError) as exc:
+        Frame.from_cbor(cbor2.dumps(cbor2.CBORTag(TAG_ZSTD_FRAME, bomb)))
+    assert exc.value.code == ErrorCode.FRAME_TOO_LARGE
+
+    unknown_size = zstandard.ZstdCompressor(write_content_size=False).compress(b"\0" * 100)
+    with pytest.raises(ProtocolError):
+        Frame.from_cbor(cbor2.dumps(cbor2.CBORTag(TAG_ZSTD_FRAME, unknown_size)))

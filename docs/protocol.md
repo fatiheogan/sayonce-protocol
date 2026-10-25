@@ -62,6 +62,25 @@ A frame is a CBOR **array** (not a map, to save key bytes):
 | `ctx_v` | uint | Context version the sender had **before** this frame. |
 | `body` | map | Type-specific fields. Keys are small unsigned integers. |
 
+### 3.2 Compressed frames
+
+A sender **may** send any frame zstd-compressed. The CBOR part is then a single tag:
+
+```
+tag 4100 ( byte string: zstd( CBOR-encoded frame ) )
+```
+
+- Every implementation **must** be able to decode compressed frames. There is no
+  negotiation, because the frame that benefits most, `HELLO`, is the first one sent.
+- The reference implementation compresses frames of **1 KB or more** (in practice
+  `HELLO` and `SNAPSHOT`), and only when the result is smaller. Ordinary `MSG` and
+  `REPLY` frames are a few hundred bytes and are sent as they are.
+- The zstd data must declare its decompressed size, and that size must not exceed the
+  16 MiB frame limit; otherwise the frame is rejected (`FRAME_TOO_LARGE`). This blocks
+  decompression bombs. A compressed frame must not contain another compressed frame.
+- Tag 4100 is from the CBOR first-come-first-served range and is not registered;
+  it is experimental, like the rest of this draft.
+
 ## 4. Message types
 
 | Code | Name | Direction | Purpose |
@@ -82,7 +101,7 @@ A frame is a CBOR **array** (not a map, to save key bytes):
 | 0 | `agent_id` | str | Client identifier. |
 | 1 | `dict` | [str] | Dictionary entries (section 6). |
 | 2 | `ctx` | map | Full initial context (section 5.2). This is version 0. |
-| 3 | `caps` | map | Optional capabilities (e.g. `{"zstd": true}`). |
+| 3 | `caps` | map | Optional capabilities, reserved for future use (compression needs none, see 3.2). |
 | 4 | `resume` | [bytes, uint, bytes] | Optional: `[session_id, ctx_v, ctx_h]` to resume a previous session. |
 
 `ctx_v` in the frame header is `0`.
@@ -300,7 +319,8 @@ This section defines how SayOnce is compared with the baselines, so the numbers 
 | B2 | JSON + zstd (and gzip) | full | Is compression alone enough? |
 | B3 | CBOR, no delta | full | Gain from binary encoding only |
 | B4 | JSON, with delta | delta | Gain from delta only |
-| S  | SayOnce (CBOR + dictionary + delta) | delta | Full protocol |
+| S  | SayOnce (CBOR + dictionary + delta + zstd for large frames) | delta | Full protocol |
+| S-raw | SayOnce without frame compression | delta | Gain from compressing HELLO / SNAPSHOT |
 
 B3 and B4 form the **ablation**: they separate the effect of binary encoding from the
 effect of delta updates.

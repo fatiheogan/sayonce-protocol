@@ -11,11 +11,18 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable
 
 import cbor2
+import zstandard
 
 from .messages import MAX_FRAME_SIZE, PROTOCOL_VERSION, ErrorCode, MessageType
 
 _LEN = struct.Struct(">I")
 HASH_SIZE = 8
+
+# Compressed frames (spec 3.2): CBOR tag wrapping the zstd-compressed frame bytes.
+# Tag number from the CBOR first-come-first-served range; not registered (experimental).
+TAG_ZSTD_FRAME = 4100
+DEFAULT_COMPRESS_THRESHOLD = 1024  # bytes; smaller frames are sent as they are
+_ZSTD_LEVEL = 3
 
 
 class ProtocolError(Exception):
@@ -49,6 +56,15 @@ class Frame:
         except Exception as exc:  # cbor2 raises several error types
             raise ProtocolError(ErrorCode.BAD_FRAME, f"invalid CBOR: {exc}") from exc
 
+        if isinstance(obj, cbor2.CBORTag) and obj.tag == TAG_ZSTD_FRAME:
+            inner = _decompress(obj.value)
+            try:
+                obj = cbor2.loads(inner)
+            except Exception as exc:
+                raise ProtocolError(ErrorCode.BAD_FRAME, f"invalid CBOR inside compressed frame: {exc}") from exc
+            if isinstance(obj, cbor2.CBORTag):
+                raise ProtocolError(ErrorCode.BAD_FRAME, "compressed frames must not be nested")
+
         if not isinstance(obj, list) or len(obj) != 5:
             raise ProtocolError(ErrorCode.BAD_FRAME, "frame must be a 5-element array")
         ver, type_, seq, ctx_v, body = obj
@@ -67,12 +83,46 @@ class Frame:
         return cls(type=mtype, seq=seq, ctx_v=ctx_v, body=body, ver=ver)
 
 
-def encode_frame(frame: Frame) -> bytes:
-    """Encode a frame with its 4-byte big-endian length prefix."""
+def encode_frame(frame: Frame, compress_threshold: int | None = None) -> bytes:
+    """Encode a frame with its 4-byte big-endian length prefix.
+
+    If compress_threshold is set and the encoded frame is at least that large,
+    it is sent zstd-compressed (spec 3.2), but only if that is actually smaller.
+    """
     payload = frame.to_cbor()
     if len(payload) > MAX_FRAME_SIZE:
         raise ProtocolError(ErrorCode.FRAME_TOO_LARGE, f"frame is {len(payload)} bytes")
+    if compress_threshold is not None and len(payload) >= compress_threshold:
+        packed = cbor2.dumps(cbor2.CBORTag(TAG_ZSTD_FRAME, _compressor().compress(payload)))
+        if len(packed) < len(payload):
+            payload = packed
     return _LEN.pack(len(payload)) + payload
+
+
+_cctx: zstandard.ZstdCompressor | None = None
+
+
+def _compressor() -> zstandard.ZstdCompressor:
+    global _cctx
+    if _cctx is None:
+        _cctx = zstandard.ZstdCompressor(level=_ZSTD_LEVEL, write_content_size=True)
+    return _cctx
+
+
+def _decompress(data: Any) -> bytes:
+    if not isinstance(data, (bytes, bytearray)):
+        raise ProtocolError(ErrorCode.BAD_FRAME, "compressed frame must wrap a byte string")
+    try:
+        params = zstandard.get_frame_parameters(data)
+    except zstandard.ZstdError as exc:
+        raise ProtocolError(ErrorCode.BAD_FRAME, f"invalid zstd data: {exc}") from exc
+    # Refuse decompression bombs: the declared size must be known and within the limit.
+    if params.content_size in (0, zstandard.CONTENTSIZE_UNKNOWN) or params.content_size > MAX_FRAME_SIZE:
+        raise ProtocolError(ErrorCode.FRAME_TOO_LARGE, "compressed frame has unknown or too large size")
+    try:
+        return zstandard.ZstdDecompressor().decompress(data, max_output_size=MAX_FRAME_SIZE)
+    except zstandard.ZstdError as exc:
+        raise ProtocolError(ErrorCode.BAD_FRAME, f"invalid zstd data: {exc}") from exc
 
 
 class FrameDecoder:

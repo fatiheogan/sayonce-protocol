@@ -60,7 +60,7 @@ def test_context_is_sent_only_once():
         try:
             hello_bytes = client.conn.stats.bytes_sent
             res = await client.request(Intent.REQUEST, "short question")
-            assert hello_bytes > 10_000
+            assert hello_bytes > 5_000  # the 20 KB context, once (zstd-compressed)
             assert res.bytes_sent < 200  # only the new message travels
         finally:
             await client.close()

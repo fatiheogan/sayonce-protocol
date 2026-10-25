@@ -22,7 +22,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Union
 
-from .codec import Dictionary, ProtocolError
+from .codec import DEFAULT_COMPRESS_THRESHOLD, Dictionary, ProtocolError
 from .context import CLIENT, SERVER, ContextStore, DeltaError, ResyncRequired, empty_context
 from .messages import (
     Bye,
@@ -117,9 +117,15 @@ class ClientSession(_Endpoint):
         ctx: dict | None = None,
         dictionary: list[str] | None = None,
         caps: dict | None = None,
+        compress_threshold: int | None = DEFAULT_COMPRESS_THRESHOLD,
     ) -> "ClientSession":
-        """Open a new session and send the full context once (HELLO)."""
+        """Open a new session and send the full context once (HELLO).
+
+        Frames of at least compress_threshold bytes (typically HELLO and
+        SNAPSHOT) are zstd-compressed; None sends everything uncompressed.
+        """
         conn = await FramedConnection.connect(host, port)
+        conn.compress_threshold = compress_threshold
         store = ContextStore(ctx, Dictionary(dictionary or []))
         session = cls(conn, agent_id, store)
         hello = Hello(agent_id=agent_id, dictionary=store.dictionary.entries, ctx=store.ctx, caps=caps or {})
@@ -131,6 +137,7 @@ class ClientSession(_Endpoint):
     async def resume(cls, host: str, port: int, previous: "ClientSession") -> "ClientSession":
         """Reconnect and continue a previous session without re-sending the context (spec 5.8)."""
         conn = await FramedConnection.connect(host, port)
+        conn.compress_threshold = previous.conn.compress_threshold
         session = cls(conn, previous.agent_id, previous.store)
         session.resync_count = previous.resync_count
         st = session.store
@@ -278,8 +285,10 @@ Handler = Callable[[Request], Union[Response, Awaitable[Response]]]
 class Server:
     """Accepts SayOnce sessions and answers MSGs with a handler."""
 
-    def __init__(self, handler: Handler, agent_id: str = "server", host: str = "127.0.0.1", port: int = 0):
+    def __init__(self, handler: Handler, agent_id: str = "server", host: str = "127.0.0.1", port: int = 0,
+                 compress_threshold: int | None = DEFAULT_COMPRESS_THRESHOLD):
         self.handler = handler
+        self.compress_threshold = compress_threshold
         self.agent_id = agent_id
         self.host = host
         self.port = port
@@ -307,7 +316,9 @@ class Server:
         await self.close()
 
     async def _on_connection(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-        session = ServerSession(self, FramedConnection(reader, writer))
+        conn = FramedConnection(reader, writer)
+        conn.compress_threshold = self.compress_threshold
+        session = ServerSession(self, conn)
         self.connections.append(session)
         try:
             await session.run()

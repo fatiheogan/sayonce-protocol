@@ -11,7 +11,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Callable
 
-from .codec import Frame, FrameDecoder, encode_frame
+from .codec import DEFAULT_COMPRESS_THRESHOLD, Frame, FrameDecoder, encode_frame
 
 # A fault hook receives an outgoing frame and returns the frame to send,
 # or None to drop it silently.
@@ -44,6 +44,8 @@ class FramedConnection:
         self._read_size = read_size
         self.stats = WireStats()
         self.fault: FaultHook | None = None
+        # Frames at least this large are zstd-compressed (spec 3.2). None disables it.
+        self.compress_threshold: int | None = DEFAULT_COMPRESS_THRESHOLD
 
     @classmethod
     async def connect(cls, host: str, port: int) -> "FramedConnection":
@@ -58,7 +60,7 @@ class FramedConnection:
                 self.stats.frames_dropped += 1
                 return 0
             frame = out
-        data = encode_frame(frame)
+        data = encode_frame(frame, self.compress_threshold)
         self._writer.write(data)
         await self._writer.drain()
         self.stats.bytes_sent += len(data)
