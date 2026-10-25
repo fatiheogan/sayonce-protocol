@@ -100,6 +100,54 @@ every row. Only `o200k_base` numbers belong in the report.
    2.4 ms vs 3.3 ms for JSON-RPC). Most of the remaining time is the mock LLM
    rendering the prompt, which is the same in every system.
 
-## Next
+## Network emulation
 
-- Network emulation with `tc netem` (step 7).
+Two ways to run the same experiments over a slower, lossy link:
+
+**1. In-process proxy (any OS, default).** `sayonce/bench/netem.py` puts a TCP
+proxy between client and server that adds one-way delay, a bandwidth limit
+and segment loss. It is deterministic with a seed.
+
+```bash
+python -m sayonce.bench.harness --network ideal 4g 3g edge --context-kb 10 100 --rounds 20 --out results/net.csv
+python -m sayonce.bench.harness --network 100:2:5 ...   # DELAY_MS:LOSS_%:MBIT/S (0 = unlimited)
+```
+
+Model per direction: data is cut into 1460-byte segments; each segment
+occupies the link for `len*8/rate` (queueing behind earlier ones), then
+travels for the one-way delay. A lost segment arrives late instead of never,
+as with TCP: one extra RTT if at least 3 segments follow it (fast
+retransmit), otherwise a 200 ms timeout plus one RTT. Delivery stays in order.
+It does not model congestion control (slow start), and the TCP handshake
+is not delayed (each system opens one connection, so this is the same for all).
+
+**2. Kernel `tc netem` (Linux / WSL2, root).** For validating the proxy with
+real TCP behaviour:
+
+```bash
+sudo scripts/netem.sh profile 3g
+python -m sayonce.bench.harness --network 3g --external-netem --out results/netem_3g.csv
+sudo scripts/netem.sh clear
+```
+
+`--external-netem` only records the conditions; the harness does not start its
+own proxy. netem on `lo` affects all loopback traffic while it is active.
+
+### Link profiles
+
+Illustrative assumptions for the mobile-communication discussion (not
+measurements; cite sources if presented as typical values):
+
+| Profile | One-way delay | Loss | Bandwidth |
+|---|---|---|---|
+| `lan` | 1 ms | 0 % | 1000 Mbit/s |
+| `wifi` | 10 ms | 0.5 % | 50 Mbit/s |
+| `4g` | 30 ms | 1 % | 20 Mbit/s |
+| `3g` | 75 ms | 2 % | 2 Mbit/s |
+| `edge` | 150 ms | 2 % | 0.2 Mbit/s |
+| `satellite` | 300 ms | 0.5 % | 10 Mbit/s |
+
+New CSV columns: `network`, `delay_ms`, `loss`, `bandwidth_mbps`,
+`net_segments`, `net_lost_segments`. The setup row (round 0) now records the
+setup latency, which matters because SayOnce sends the context there.
+

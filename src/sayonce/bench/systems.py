@@ -69,6 +69,15 @@ class SetupResult:
 class System(ABC):
     name: str = ""
     full_context: bool = True  # sends the whole context every round?
+    connect_port: int | None = None  # set to a proxy port to route the client through a network emulator
+
+    @property
+    @abstractmethod
+    def server_port(self) -> int:
+        """Port the server listens on (available after start)."""
+
+    def _client_port(self) -> int:
+        return self.connect_port or self.server_port
 
     @abstractmethod
     async def start(self, handler: Handler) -> None:
@@ -152,7 +161,7 @@ class SayOnceSystem(System):
 
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
         assert self.server
-        self.client = await ClientSession.open("127.0.0.1", self.server.port, agent_id, ctx, dictionary)
+        self.client = await ClientSession.open("127.0.0.1", self._client_port(), agent_id, ctx, dictionary)
         st = self.client.conn.stats
         return SetupResult(st.bytes_sent, st.bytes_received, info_sent={"context": ctx, "dictionary": dictionary})
 
@@ -179,6 +188,11 @@ class SayOnceSystem(System):
     def client_ctx(self) -> dict:
         assert self.client
         return self.client.store.ctx
+
+    @property
+    def server_port(self) -> int:
+        assert self.server
+        return self.server.port
 
 
 # ------------------------------------------------------------------ B1/B2: JSON-RPC over HTTP, full context
@@ -214,7 +228,7 @@ class JsonRpcSystem(System):
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
         assert self.http_server
         self.store = ContextStore(ctx, Dictionary())
-        self.http = HttpClient("127.0.0.1", self.http_server.port, self.encoding)
+        self.http = HttpClient("127.0.0.1", self._client_port(), self.encoding)
         await self.http.connect()
         return SetupResult()  # stateless: nothing to set up
 
@@ -258,6 +272,10 @@ class JsonRpcSystem(System):
     def client_ctx(self) -> dict:
         assert self.store
         return self.store.ctx
+
+    @property
+    def server_port(self) -> int:
+        return self.http_server.port  # type: ignore[union-attr]
 
 
 # ------------------------------------------------------------------ B3: CBOR, full context
@@ -315,7 +333,7 @@ class CborFullSystem(System):
 
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
         self.store = ContextStore(ctx, Dictionary(dictionary))
-        self.conn = await FramedConnection.connect("127.0.0.1", self.port)
+        self.conn = await FramedConnection.connect("127.0.0.1", self._client_port())
         await self.conn.send(Frame(type=MessageType.HELLO, seq=0, ctx_v=0, body={0: agent_id, 1: dictionary}))
         self._seq = 1
         st = self.conn.stats
@@ -367,6 +385,10 @@ class CborFullSystem(System):
     def client_ctx(self) -> dict:
         assert self.store
         return self.store.ctx
+
+    @property
+    def server_port(self) -> int:
+        return self.port
 
 
 # ------------------------------------------------------------------ B4: JSON-RPC over HTTP, with delta
@@ -423,7 +445,7 @@ class JsonDeltaSystem(System):
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
         assert self.http_server
         self.store = ContextStore(ctx, Dictionary())
-        self.http = HttpClient("127.0.0.1", self.http_server.port)
+        self.http = HttpClient("127.0.0.1", self._client_port())
         await self.http.connect()
         body = {"jsonrpc": "2.0", "id": next(self._ids), "method": "session/open",
                 "params": {"agent_id": agent_id, "context": ctx}}
@@ -482,6 +504,10 @@ class JsonDeltaSystem(System):
     def client_ctx(self) -> dict:
         assert self.store
         return self.store.ctx
+
+    @property
+    def server_port(self) -> int:
+        return self.http_server.port  # type: ignore[union-attr]
 
 
 # ------------------------------------------------------------------ registry

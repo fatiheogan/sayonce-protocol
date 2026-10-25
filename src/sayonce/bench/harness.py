@@ -34,16 +34,18 @@ from typing import Any, Iterable
 
 from ..agents import MockLLM, WorkerAgent, render_prompt
 from ..session import Request, Response
+from .netem import PROFILES, NetConditions, NetemProxy
 from .systems import SYSTEMS, System, make_system
 from .tokens import TokenCounter, default_counter
 from .workload import WORKLOADS, Workload
 
 COLUMNS = [
-    "system", "workload", "context_kb", "repeat", "round", "intent",
+    "system", "workload", "context_kb", "network", "delay_ms", "loss", "bandwidth_mbps",
+    "repeat", "round", "intent",
     "bytes_sent", "bytes_received", "bytes_total", "header_bytes", "cum_bytes",
     "wire_tokens_sent", "wire_tokens_received", "wire_tokens_total", "cum_wire_tokens",
     "llm_prompt_tokens", "llm_prefix_cached_tokens", "llm_uncached_tokens",
-    "latency_ms", "cpu_ms", "tokenizer",
+    "latency_ms", "cpu_ms", "net_segments", "net_lost_segments", "tokenizer",
 ]
 
 
@@ -55,6 +57,8 @@ class RunConfig:
     workload: str = "travel"
     seed: int = 0
     repeat: int = 0
+    net: NetConditions = NetConditions(name="ideal")
+    external_netem: bool = False  # conditions applied outside (tc netem); only recorded
 
 
 class PromptRecorder:
@@ -102,14 +106,19 @@ async def run_one(cfg: RunConfig, counter: TokenCounter | None = None, cache: _T
     recorder = PromptRecorder(WorkerAgent(MockLLM()))
     system: System = make_system(cfg.system)
     await system.start(recorder)
+    proxy: NetemProxy | None = None
+    if not cfg.net.is_ideal and not cfg.external_netem:
+        proxy = await NetemProxy(system.server_port, cfg.net, seed=cfg.seed * 100 + cfg.repeat).start()
+        system.connect_port = proxy.port
     rows: list[dict[str, Any]] = []
     base = {"system": cfg.system, "workload": wl.name, "context_kb": cfg.context_kb,
-            "repeat": cfg.repeat, "tokenizer": counter.name}
+            "network": cfg.net.label(), "delay_ms": cfg.net.delay_ms, "loss": cfg.net.loss,
+            "bandwidth_mbps": cfg.net.bandwidth_mbps, "repeat": cfg.repeat, "tokenizer": counter.name}
     raw: list[tuple] = []
     try:
-        c0 = time.process_time()
+        c0, w0 = time.process_time(), time.perf_counter()
         setup = await system.open("agent-a", wl.context, wl.dictionary)
-        setup_cpu = time.process_time() - c0
+        setup_cpu, setup_wall = time.process_time() - c0, time.perf_counter() - w0
         for rnd in wl.rounds:
             c0 = time.process_time()
             res = await system.request(rnd.intent, rnd.content, delta=rnd.delta, task_id=rnd.task_id)
@@ -117,6 +126,10 @@ async def run_one(cfg: RunConfig, counter: TokenCounter | None = None, cache: _T
             raw.append((rnd, res, cpu, recorder.last_prompt))
     finally:
         await system.close()
+        if proxy is not None:
+            await proxy.close()
+    base["net_segments"] = proxy.stats.segments if proxy else 0
+    base["net_lost_segments"] = proxy.stats.lost if proxy else 0
 
     # Token counting happens after the run, so it does not affect cpu_ms or latency.
     cum_bytes = setup.bytes_total
@@ -128,7 +141,7 @@ async def run_one(cfg: RunConfig, counter: TokenCounter | None = None, cache: _T
                  "wire_tokens_sent": setup_tokens, "wire_tokens_received": 0,
                  "wire_tokens_total": setup_tokens, "cum_wire_tokens": cum_tokens,
                  "llm_prompt_tokens": 0, "llm_prefix_cached_tokens": 0, "llm_uncached_tokens": 0,
-                 "latency_ms": 0.0, "cpu_ms": round(setup_cpu * 1000, 3)})
+                 "latency_ms": round(setup_wall * 1000, 3), "cpu_ms": round(setup_cpu * 1000, 3)})
 
     prev_prompt_tokens: list | None = None
     for i, (rnd, res, cpu, prompt) in enumerate(raw, start=1):
@@ -154,19 +167,38 @@ async def run_one(cfg: RunConfig, counter: TokenCounter | None = None, cache: _T
 
 
 async def sweep(systems: Iterable[str], context_kbs: Iterable[int], rounds: int, repeats: int = 1,
-                workload: str = "travel", seed: int = 0, progress: bool = True) -> list[dict[str, Any]]:
+                workload: str = "travel", seed: int = 0, progress: bool = True,
+                networks: Iterable[NetConditions] = (NetConditions(name="ideal"),),
+                external_netem: bool = False) -> list[dict[str, Any]]:
     counter = default_counter()
     cache = _TokenCache(counter)
     rows: list[dict[str, Any]] = []
-    for kb in context_kbs:
-        wl = WORKLOADS[workload](kb, rounds, seed=seed)  # same workload for every system
-        for rep in range(repeats):
-            for name in systems:
-                t0 = time.perf_counter()
-                rows += await run_one(RunConfig(name, kb, rounds, workload, seed, rep), counter, cache, wl)
-                if progress:
-                    print(f"  {name:13s} {kb:>4} KB  repeat {rep}  {time.perf_counter() - t0:5.1f}s", file=sys.stderr)
+    systems, networks = list(systems), list(networks)
+    for net in networks:
+        for kb in context_kbs:
+            wl = WORKLOADS[workload](kb, rounds, seed=seed)  # same workload for every system
+            for rep in range(repeats):
+                for name in systems:
+                    t0 = time.perf_counter()
+                    cfg = RunConfig(name, kb, rounds, workload, seed, rep, net, external_netem)
+                    rows += await run_one(cfg, counter, cache, wl)
+                    if progress:
+                        print(f"  {net.label():>22s}  {name:13s} {kb:>4} KB  repeat {rep}  "
+                              f"{time.perf_counter() - t0:6.1f}s", file=sys.stderr)
     return rows
+
+
+def parse_network(spec: str) -> NetConditions:
+    """A profile name (see netem.PROFILES) or 'DELAY_MS:LOSS_PERCENT:BANDWIDTH_MBPS' (0 = unlimited)."""
+    if spec in PROFILES:
+        return PROFILES[spec]
+    try:
+        d, l, b = (float(x) for x in spec.split(":"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"network must be one of {list(PROFILES)} or DELAY_MS:LOSS_PERCENT:BANDWIDTH_MBPS, got {spec!r}"
+        ) from None
+    return NetConditions(delay_ms=d, loss=l / 100, bandwidth_mbps=b)
 
 
 def write_csv(rows: list[dict[str, Any]], path: Path, meta: dict[str, Any]) -> None:
@@ -181,6 +213,9 @@ def write_csv(rows: list[dict[str, Any]], path: Path, meta: dict[str, Any]) -> N
 def summary(rows: list[dict[str, Any]], at_rounds: Iterable[int] = (1, 10, 50)) -> str:
     """Cumulative bytes and wire tokens at selected rounds (repeat 0)."""
     lines = []
+    nets = list(dict.fromkeys(r["network"] for r in rows))
+    if len(nets) > 1:
+        return "\n\n".join(f"[{n}]\n" + summary([r for r in rows if r["network"] == n], at_rounds) for n in nets)
     keys = sorted({(r["context_kb"], r["system"]) for r in rows}, key=lambda k: (k[0], list(SYSTEMS).index(k[1])))
     by = {(r["context_kb"], r["system"], r["round"]): r for r in rows if r["repeat"] == 0}
     max_round = max(r["round"] for r in rows)
@@ -205,6 +240,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--repeats", type=int, default=1, help="repeat runs (bytes are deterministic; latency is not)")
     p.add_argument("--workload", default="travel", choices=list(WORKLOADS))
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--network", nargs="+", type=parse_network, default=[PROFILES["ideal"]],
+                   help=f"profiles {list(PROFILES)} or DELAY_MS:LOSS_PERCENT:BANDWIDTH_MBPS (one-way delay)")
+    p.add_argument("--external-netem", action="store_true",
+                   help="conditions are applied outside (scripts/netem.sh); record them, do not start the proxy")
     p.add_argument("--out", type=Path, default=Path("results/sweep.csv"))
     args = p.parse_args(argv)
 
@@ -215,16 +254,18 @@ def main(argv: list[str] | None = None) -> None:
               "(column tokenizer=approx). Do not use these numbers in the final report.", file=sys.stderr)
 
     t0 = time.perf_counter()
-    rows = asyncio.run(sweep(systems, args.context_kb, args.rounds, args.repeats, args.workload, args.seed))
+    rows = asyncio.run(sweep(systems, args.context_kb, args.rounds, args.repeats, args.workload, args.seed,
+                             networks=args.network, external_netem=args.external_netem))
     meta = {
-        "args": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
+        "args": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items() if k != "network"},
         "systems": systems,
         "tokenizer": counter.name,
         "python": platform.python_version(),
         "platform": platform.platform(),
         "started": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "duration_s": round(time.perf_counter() - t0, 1),
-        "network": "localhost, no emulation",
+        "networks": [n.__dict__ for n in args.network],
+        "emulation": "tc netem (external)" if args.external_netem else "in-process proxy (sayonce.bench.netem)",
     }
     write_csv(rows, args.out, meta)
     print(summary(rows))
