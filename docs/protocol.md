@@ -236,6 +236,14 @@ Index `i` refers to entry `i`.
 elements, and tool names. In these positions a string is expected, so an **unsigned
 integer** `i` unambiguously means "dictionary entry `i`". Indices 0–23 cost 1 byte in CBOR.
 
+**Integers in paths.** A path element can be a list index (`["hist", 3]`) or a dictionary
+reference (`["vars", 5]`). The receiver decides while walking the path: if the current
+container is a **list**, the integer is an index; if it is a **map**, the integer is a
+dictionary reference. Context map keys are always strings, so this is never ambiguous.
+
+The context hash (5.5) is always computed on the expanded, string-keyed form, so the
+dictionary changes only the bytes on the wire, never the meaning of the context.
+
 References are **not** used inside arbitrary `content` values, because there an integer
 could be a real integer.
 
