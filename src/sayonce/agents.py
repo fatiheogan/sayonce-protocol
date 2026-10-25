@@ -44,8 +44,10 @@ class MockLLM:
         self.prompt_chars_total += len(prompt)
         digest = hashlib.sha256(prompt.encode()).hexdigest()
         text = f"Answer #{self.calls} to {str(question)[:60]!r}. ref={digest[:12]} "
-        filler = "lorem ipsum dolor sit amet " * (self.reply_chars // 27 + 1)
-        return (text + filler)[: max(self.reply_chars, len(text))]
+        import random
+
+        body = _text(random.Random(digest), self.reply_chars // 6 + 1)  # varied, not repetitive filler
+        return (text + body)[: max(self.reply_chars, len(text))]
 
 
 class WorkerAgent:
@@ -72,22 +74,65 @@ class WorkerAgent:
         return Response(content=answer, status=ReplyStatus.OK, delta=delta)
 
 
-def sample_context(size_kb: int = 10) -> tuple[dict, list[str]]:
-    """A travel-agent style context of roughly size_kb kilobytes, plus a dictionary."""
-    n_tools = max(1, size_kb * 2)
-    tools = {
-        f"tool_{i}": {
-            "description": f"Tool number {i}. " + "Looks up data in an external system. " * 10,
-            "params": {"query": "string", "limit": "integer", "lang": "string"},
+_WORDS = """
+able access account action active address adjust agent airline airport allow amount analysis answer
+apply approve arrival assign attach available average balance batch before benefit booking border
+budget buffer cabin calendar cancel capacity carrier category change charge check choose city class
+client code collect column combine compare confirm connect constraint contact context convert copy
+cost count country create credit currency customer daily data date deadline default delay deliver
+departure deposit describe destination detail device direct discount distance document domestic draft
+duration early economy edit email enable end entry error estimate event exact exchange exclude expense
+export external extra factor fallback fare fetch field file filter final first fixed flight follow
+format forward frequency fuel full gate generate given global group guest handle history hotel hour
+identify ignore import include index input insert inspect insurance internal invoice item journey key
+label language latest layover leg length level limit link list load local location lock lodging lookup
+loyalty luggage manage manual map match maximum meal member merge message method minimum mode modify
+month name nearest network night notice number object offer option order origin output overnight owner
+package page parameter partner passenger passport path pattern payment pending period permit person
+pickup place plan policy port prefer premium price primary priority process profile provider purchase
+query queue quota range rate reason receipt record reduce refund region reject release remove rental
+repeat report request require reserve resource response result return review room route rule schedule
+score search season seat section select send sequence service session share shift single size skip
+source split standard start state status step stop store string summary supplier support surcharge
+table target task tax terminal ticket time timezone token total track traffic transfer transit trip
+type update upgrade usage user valid value vehicle vendor verify visa voucher wait warning week window
+""".split()
+
+
+def _text(rng, n_words: int) -> str:
+    words = [rng.choice(_WORDS) for _ in range(n_words)]
+    sentences, i = [], 0
+    while i < len(words):
+        k = rng.randint(6, 14)
+        chunk = words[i : i + k]
+        sentences.append(chunk[0].capitalize() + " " + " ".join(chunk[1:]) + ".")
+        i += k
+    return " ".join(sentences)
+
+
+def sample_context(size_kb: int = 10, seed: int = 0) -> tuple[dict, list[str]]:
+    """A travel-agent style context of roughly size_kb kilobytes (as JSON), plus a dictionary.
+
+    Text is generated from a fixed vocabulary with a seeded RNG, so it is
+    reproducible but not artificially repetitive: it compresses about as well
+    as real English JSON (3-4x with gzip), not 20x+ like copy-pasted filler.
+    """
+    import random
+
+    rng = random.Random(seed)
+    target = size_kb * 1024
+    sys_text = _text(rng, 60)
+    tools: dict = {}
+    while len(json.dumps({"sys": sys_text, "tools": tools}, separators=(",", ":"))) < target:
+        i = len(tools)
+        tools[f"tool_{i}"] = {
+            "description": _text(rng, rng.randint(25, 45)),
+            "params": {
+                rng.choice(_WORDS) + "_" + rng.choice(_WORDS): rng.choice(["string", "integer", "number", "boolean"])
+                for _ in range(rng.randint(2, 5))
+            },
         }
-        for i in range(n_tools)
-    }
-    ctx = {
-        "sys": "You are a helpful travel planning agent. Follow the user's constraints. " * 10,
-        "tools": tools,
-        "hist": [],
-        "vars": {"budget": 500, "status": "new"},
-    }
+    ctx = {"sys": sys_text, "tools": tools, "hist": [], "vars": {"budget": 500, "status": "new"}}
     dictionary = ["sys", "tools", "hist", "vars", "budget", "status", "last_task",
-                  "description", "params", "query", "limit", "lang", *tools.keys()]
+                  "description", "params", *tools.keys()]
     return ctx, dictionary
