@@ -17,8 +17,8 @@ authors = [
 dependencies = ["cbor2>=5.6"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "zstandard>=0.22"]
-bench = ["zstandard>=0.22"]
+dev = ["pytest>=8", "zstandard>=0.22", "tiktoken>=0.7"]
+bench = ["zstandard>=0.22", "tiktoken>=0.7"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

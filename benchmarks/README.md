@@ -47,7 +47,57 @@ Cumulative bytes, both directions:
   bytes than SayOnce, because the SayOnce HELLO is not compressed. Compressing
   large frames (HELLO / SNAPSHOT) is a possible improvement.
 
+## Running the sweep
+
+```bash
+pip install -e ".[dev]"          # includes tiktoken and zstandard
+python -m sayonce.bench.harness --systems all --context-kb 1 10 50 100 --rounds 50 --out results/sweep.csv
+```
+
+This writes one row per (system, context size, repeat, round) to the CSV and
+a `.meta.json` file with the settings, tokenizer and machine info. Round 0 is
+the session setup. Because rows are cumulative, a 50-round run also gives the
+results at 1, 5, 10 and 20 rounds. The full sweep takes about a minute.
+
+**Tokenizer:** token counts use tiktoken `o200k_base`. tiktoken downloads its
+encoding file on first use; if it cannot (offline), the harness falls back to
+an approximate counter, prints a warning and writes `tokenizer=approx` in
+every row. Only `o200k_base` numbers belong in the report.
+
+### Columns
+
+| Column | Meaning |
+|---|---|
+| `bytes_sent`, `bytes_received`, `header_bytes`, `cum_bytes` | application bytes on the wire (HTTP headers included and also shown separately) |
+| `wire_tokens_*`, `cum_wire_tokens` | tokens of the information that crossed the wire, rendered as compact JSON |
+| `llm_prompt_tokens` | tokens the worker's LLM read this round (0 for INFORM, which does not call the LLM) |
+| `llm_prefix_cached_tokens` | leading tokens shared with the previous prompt, i.e. what a provider prefix cache could reuse |
+| `latency_ms`, `cpu_ms` | per round; CPU covers client and server, which run in the same process |
+
+## Findings from the first sweep (localhost, approximate tokens)
+
+1. **Wire tokens drop like bytes.** At 100 KB context and 50 rounds the
+   information sent between the agents is about 28k tokens with SayOnce vs
+   1.2M with full-context JSON-RPC (about 40x).
+
+2. **LLM prompt tokens are the same in every system.** The worker agent
+   renders the whole shared context as its prompt each round, whatever the
+   protocol. So SayOnce does not reduce what the LLM reads; it reduces what
+   the agents send each other. The LLM-side saving comes from prefix caching
+   (about 96-97% of prompt tokens are a repeated prefix here), and a stateless
+   baseline could get the same cache hits if it re-renders the prompt in a
+   stable order. What SayOnce adds on that side is that stable order is part of
+   the protocol (spec 5.2), rather than something each client must get right.
+   This answers the research question more precisely than "SayOnce saves
+   LLM tokens", and should be stated that way in the report.
+
+3. **On localhost SayOnce is slower per round at large contexts** (about 16 ms
+   vs 9 ms at 100 KB). With no real network, sending bytes is almost free, and
+   SayOnce pays for copying and hashing the full context on every message.
+   Step 7 (network emulation) shows where the byte savings start to matter.
+   Making the context store cheaper (copy only changed segments, hash segments
+   separately) would reduce this overhead.
+
 ## Next
 
-- `harness.py` (step 6): parameter sweeps, token counting, CSV output.
 - Network emulation with `tc netem` (step 7).
