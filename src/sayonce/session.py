@@ -174,7 +174,7 @@ class ClientSession(_Endpoint):
         sent0, recv0, resync0 = stats.bytes_sent, stats.bytes_received, self.resync_count
         t0 = time.perf_counter()
 
-        before = self.store.snapshot()  # to roll back if the server rejects this MSG
+        before = self.store.checkpoint()  # O(1); to roll back if the server rejects this MSG
         msg_seq = await self._send_msg(intent, content, delta, task_id)
 
         attempts = 0
@@ -205,7 +205,7 @@ class ClientSession(_Endpoint):
                 attempts += 1
                 if attempts > MAX_RESYNC_ATTEMPTS:
                     raise SessionError("too many resync attempts")
-                self.store.load_snapshot(*before)
+                self.store.restore(before)
                 await self._send_snapshot()
                 self.resync_count += 1
                 msg_seq = await self._send_msg(intent, content, delta, task_id)

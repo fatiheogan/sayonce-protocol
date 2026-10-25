@@ -1,6 +1,6 @@
 import pytest
 
-from sayonce.codec import Dictionary, FrameDecoder, encode_frame
+from sayonce.codec import Dictionary, FrameDecoder, context_hash, encode_frame
 from sayonce.context import (
     CLIENT,
     SERVER,
@@ -34,6 +34,13 @@ def base_ctx():
 
 def pair():
     return ContextStore(base_ctx(), D), ContextStore(base_ctx(), D)
+
+
+def diverge(store, **vars_):
+    """Make a store hold a different (but internally consistent) context."""
+    v, ctx, _ = store.snapshot()
+    ctx["vars"].update(vars_)
+    store.load_snapshot(v, ctx, context_hash(ctx))
 
 
 # ------------------------------------------------------------ apply_delta
@@ -156,7 +163,7 @@ def test_version_mismatch():
 
 def test_hash_mismatch_when_contexts_diverged():
     client, server = pair()
-    server._ctx["vars"]["budget"] = 1  # simulate corruption on one side
+    diverge(server, budget=1)  # one side has a different context
     step = client.advance(CLIENT, Intent.INFORM, "hi")
     before = server.ctx["vars"]["budget"]
     with pytest.raises(ResyncRequired) as exc:
@@ -184,8 +191,7 @@ def test_invalid_own_delta_leaves_store_unchanged():
 
 def test_snapshot_recovers_and_sync_continues():
     client, server = pair()
-    server._ctx["vars"]["budget"] = 1  # diverged
-    server.hash = b"stale!!!"
+    diverge(server, budget=1)
 
     v, ctx, h = client.snapshot()
     server.load_snapshot(v, ctx, h)
@@ -216,3 +222,48 @@ def test_content_is_copied_into_history():
     client.advance(CLIENT, Intent.REQUEST, content)
     content["q"].append(3)
     assert client.ctx["hist"][0]["c"] == {"q": [1, 2]}
+
+
+# ------------------------------------------------------------ incremental hashing
+
+
+def test_incremental_hash_equals_full_hash():
+    client, server = pair()
+    deltas = [
+        [],
+        [[SET, ["vars", "budget"], 1]],
+        [[APPEND, ["vars", "items"], [9]]],
+        [[SET, ["tools", "new"], {"description": "x"}]],
+        [[SET, ["sys"], "new instructions"]],
+        [[SET, ["hist", 0, "c"], "edited"]],  # rewrites history: chain recomputed
+        [[DEL, ["tools", "search"]]],
+    ]
+    for i, delta in enumerate(deltas):
+        step = client.advance(CLIENT, Intent.REQUEST, f"q{i}", delta)
+        server.receive(CLIENT, Intent.REQUEST, f"q{i}", delta, step.version, step.new_hash)
+        assert client.hash == server.hash == context_hash(client.ctx)
+        assert client.verify() and server.verify()
+
+
+def test_committed_versions_are_not_mutated():
+    client, _ = pair()
+    old = client.ctx
+    old_vars = dict(old["vars"])
+    client.advance(CLIENT, Intent.REQUEST, "q", [[SET, ["vars", "budget"], 1], [APPEND, ["vars", "items"], [4]]])
+    assert old["vars"] == old_vars and len(old["hist"]) == 0
+    assert client.ctx["tools"] is old["tools"]  # untouched segment is shared, not copied
+
+
+def test_checkpoint_and_restore():
+    client, _ = pair()
+    cp = client.checkpoint()
+    client.advance(CLIENT, Intent.REQUEST, "to be undone", [[SET, ["vars", "budget"], 1]])
+    client.restore(cp)
+    assert client.version == 0 and client.ctx["hist"] == [] and client.ctx["vars"]["budget"] == 500
+    assert client.verify()
+
+
+def test_verify_detects_silent_local_corruption():
+    client, _ = pair()
+    client._ctx["tools"]["search"]["description"] = "tampered"  # bypasses the store
+    assert not client.verify()

@@ -91,12 +91,14 @@ every row. Only `o200k_base` numbers belong in the report.
    This answers the research question more precisely than "SayOnce saves
    LLM tokens", and should be stated that way in the report.
 
-3. **On localhost SayOnce is slower per round at large contexts** (about 16 ms
-   vs 9 ms at 100 KB). With no real network, sending bytes is almost free, and
-   SayOnce pays for copying and hashing the full context on every message.
-   Step 7 (network emulation) shows where the byte savings start to matter.
-   Making the context store cheaper (copy only changed segments, hash segments
-   separately) would reduce this overhead.
+3. **Context store cost.** The first version copied and re-hashed the whole
+   context on every message, which made SayOnce slower per round than JSON-RPC
+   on localhost at 100 KB. The store now copies only changed segments and
+   hashes segments separately, with history as a hash chain (spec 5.5). Store
+   cost per message dropped from about 1.2 ms to 0.03 ms (about 35x), and
+   SayOnce is now also faster per round on localhost (100 KB, 50 rounds, mean:
+   2.4 ms vs 3.3 ms for JSON-RPC). Most of the remaining time is the mock LLM
+   rendering the prompt, which is the same in every system.
 
 ## Next
 

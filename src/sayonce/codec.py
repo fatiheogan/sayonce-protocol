@@ -177,6 +177,45 @@ def canonical_cbor(value: Any) -> bytes:
     return cbor2.dumps(value, canonical=True)
 
 
+# The context hash is built from per-segment hashes (spec 5.5), so a store only
+# has to re-hash the segments a message changed. History is hashed as a chain,
+# so appending a turn costs one small hash instead of re-hashing the whole list.
+
+SEGMENT_HASH_SIZE = 16
+HIST_SEED = hashlib.blake2b(b"sayonce-hist-v1", digest_size=SEGMENT_HASH_SIZE).digest()
+
+
+def _h16(data: bytes) -> bytes:
+    return hashlib.blake2b(data, digest_size=SEGMENT_HASH_SIZE).digest()
+
+
+def chain_hist(prev: bytes, turn: Any) -> bytes:
+    """Hash of the history after appending one turn."""
+    return _h16(prev + canonical_cbor(turn))
+
+
+def segment_hash(name: str, value: Any) -> bytes:
+    """16-byte hash of one context segment. "hist" is a chain over its turns."""
+    if name == "hist" and isinstance(value, list):
+        h = HIST_SEED
+        for turn in value:
+            h = chain_hist(h, turn)
+        return h
+    return _h16(canonical_cbor(value))
+
+
+def combine_segment_hashes(seg: dict[str, bytes]) -> bytes:
+    """8-byte context hash from segment hashes, in sorted segment-name order."""
+    return hashlib.blake2b(
+        b"".join(name.encode() + b"\x00" + seg[name] for name in sorted(seg)), digest_size=HASH_SIZE
+    ).digest()
+
+
 def context_hash(ctx: Any) -> bytes:
-    """8-byte BLAKE2b fingerprint of the canonical encoding of the (expanded) context."""
+    """8-byte fingerprint of an (expanded) context, computed from scratch.
+
+    Equal to what ContextStore maintains incrementally.
+    """
+    if isinstance(ctx, dict) and all(isinstance(k, str) for k in ctx):
+        return combine_segment_hashes({k: segment_hash(k, v) for k, v in ctx.items()})
     return hashlib.blake2b(canonical_cbor(ctx), digest_size=HASH_SIZE).digest()

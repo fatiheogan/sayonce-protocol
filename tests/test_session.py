@@ -3,7 +3,7 @@ import asyncio
 import cbor2
 
 from sayonce.agents import MockLLM, WorkerAgent, render_prompt, sample_context
-from sayonce.codec import Frame
+from sayonce.codec import Frame, context_hash
 from sayonce.messages import DeltaOp, ErrorCode, Intent, MessageType, ReplyStatus
 from sayonce.session import ClientSession, Response, Server
 from sayonce.transport import FramedConnection
@@ -22,6 +22,13 @@ async def open_pair(handler=None, size_kb=5):
 
 def server_store(server, client):
     return server.sessions[client.session_id]
+
+
+def diverge(store, **vars_):
+    """Give a store a different (internally consistent) context, like a buggy or restarted peer."""
+    v, ctx, _ = store.snapshot()
+    ctx["vars"].update(vars_)
+    store.load_snapshot(v, ctx, context_hash(ctx))
 
 
 # ---------------------------------------------------------------- happy path
@@ -103,7 +110,7 @@ def test_resync_when_server_context_corrupted():
         server, client = await open_pair()
         try:
             await client.request(Intent.REQUEST, "first")
-            server_store(server, client)._ctx["vars"]["budget"] = -1  # simulate a bug / restart
+            diverge(server_store(server, client), budget=-1)  # simulate a bug / restart
 
             res = await client.request(Intent.REQUEST, "second")
             assert res.status == ReplyStatus.OK and res.resyncs == 1
@@ -133,7 +140,7 @@ def test_resync_when_client_context_corrupted():
 
             async def send_then_corrupt(*a, **kw):
                 seq = await orig_send_msg(*a, **kw)
-                client.store._ctx["vars"]["budget"] = -1
+                diverge(client.store, budget=-1)
                 return seq
 
             client._send_msg = send_then_corrupt

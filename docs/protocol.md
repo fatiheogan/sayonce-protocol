@@ -190,8 +190,30 @@ REPLY → append {"r": "s", "s": status, "c": content} to ctx["hist"]
 
 ### 5.5 Context hash
 
-`ctx_h` = first 8 bytes of BLAKE2b over the **canonical CBOR** encoding of the context
-(RFC 8949 section 4.2.1: deterministic encoding, map keys sorted).
+The hash is built from **per-segment hashes**, so a message only re-hashes what it changed.
+`canon(x)` is the canonical CBOR encoding (RFC 8949 section 4.2.1: deterministic, map keys
+sorted) and `H16` / `H8` are BLAKE2b with a 16-byte / 8-byte digest.
+
+```
+seg("sys")   = H16(canon(ctx["sys"]))            same for "tools" and "vars"
+seg("hist")  = chain over the turns:
+               h0 = H16("sayonce-hist-v1")
+               h_k = H16(h_{k-1} || canon(turn_k))
+ctx_h        = H8( for each segment name in sorted order: name || 0x00 || seg(name) )
+```
+
+Because history is a chain, appending the new turn (5.4) costs one small hash, and
+segments a delta does not touch keep their hash. A delta that rewrites history itself
+(e.g. `SET ["hist", 0, ...]`) recomputes the chain from the start.
+
+Implementations should also treat committed contexts as immutable and copy only the
+segments a delta writes to. Together this makes the per-message cost depend on the size
+of the change, not the size of the context.
+
+**Limitation.** Incremental hashing re-checks only what a message changes. If a local
+copy is silently corrupted in a segment that no message touches, the hash will not notice
+until that segment changes. An implementation may re-hash from scratch at any time
+(`ContextStore.verify()`), for example after a session resume.
 
 ### 5.6 Receive procedure
 

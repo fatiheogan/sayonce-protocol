@@ -17,7 +17,7 @@ import copy
 from dataclasses import dataclass
 from typing import Any
 
-from .codec import Dictionary, context_hash
+from .codec import Dictionary, chain_hist, combine_segment_hashes, context_hash, segment_hash
 from .messages import DeltaOp, ResyncReason
 
 SEGMENTS = ("sys", "tools", "hist", "vars")
@@ -168,16 +168,45 @@ class Step:
     new_hash: bytes  # goes into the frame body
 
 
+@dataclass(frozen=True)
+class Checkpoint:
+    """Cheap saved state of a store, to roll back an unanswered message."""
+
+    version: int
+    ctx: dict
+    seg: dict
+    hash: bytes
+
+
+def _touched_segments(delta: list, d: Dictionary) -> set[str]:
+    """Top-level segments a delta writes to."""
+    out = set()
+    for op in delta:
+        if not isinstance(op, (list, tuple)) or len(op) < 2 or not op[1]:
+            raise DeltaError(f"bad operation {op!r}")
+        out.add(_resolve_key({}, list(op[1])[0], d))
+    return out
+
+
 class ContextStore:
-    """One agent's copy of the shared context."""
+    """One agent's copy of the shared context.
+
+    Cost per message is proportional to what changed, not to the context size:
+
+    * Committed contexts are never mutated. A new version shares unchanged
+      segments with the previous one and copies only segments the delta writes to.
+    * Each segment has its own hash; "hist" is a hash chain, so appending the
+      new turn costs one small hash (spec 5.5).
+
+    Consequence: the dict returned by ``ctx`` (and anything inside it) must be
+    treated as read-only by callers such as handlers.
+    """
 
     def __init__(self, ctx: dict | None = None, dictionary: Dictionary | None = None, version: int = 0):
         self.dictionary = dictionary or Dictionary()
         ctx = copy.deepcopy(ctx) if ctx is not None else empty_context()
         validate_context(ctx)
-        self._ctx = ctx
-        self.version = version
-        self.hash = context_hash(ctx)
+        self._set_state(version, ctx, {k: segment_hash(k, v) for k, v in ctx.items()})
 
     @property
     def ctx(self) -> dict:
@@ -192,8 +221,8 @@ class ContextStore:
         Raises DeltaError if our own delta is invalid (a programming error);
         the store is left unchanged in that case.
         """
-        new_ctx = self._next(role, code, content, delta or [])
-        return self._commit(new_ctx)
+        new_ctx, new_seg = self._next(role, code, content, delta or [])
+        return self._commit(new_ctx, new_seg)
 
     # -- receiving side ----------------------------------------------------
 
@@ -216,13 +245,12 @@ class ContextStore:
                 ResyncReason.VERSION_MISMATCH, f"frame at v{frame_ctx_v}, local at v{self.version}"
             )
         try:
-            new_ctx = self._next(role, code, content, delta)
+            new_ctx, new_seg = self._next(role, code, content, delta)
         except DeltaError as exc:
             raise ResyncRequired(ResyncReason.APPLY_FAILED, str(exc)) from exc
-        new_hash = context_hash(new_ctx)
-        if new_hash != frame_ctx_h:
+        if combine_segment_hashes(new_seg) != frame_ctx_h:
             raise ResyncRequired(ResyncReason.HASH_MISMATCH, "context differs after applying delta")
-        return self._commit(new_ctx, new_hash)
+        return self._commit(new_ctx, new_seg)
 
     # -- resync --------------------------------------------------------------
 
@@ -231,27 +259,58 @@ class ContextStore:
         return self.version, copy.deepcopy(self._ctx), self.hash
 
     def load_snapshot(self, version: int, ctx: dict, ctx_h: bytes) -> None:
-        """Replace the local context with a received SNAPSHOT."""
+        """Replace the local context with a received SNAPSHOT (hash checked from scratch)."""
         validate_context(ctx)
-        if context_hash(ctx) != ctx_h:
+        seg = {k: segment_hash(k, v) for k, v in ctx.items()}
+        if combine_segment_hashes(seg) != ctx_h:
             raise ResyncRequired(ResyncReason.HASH_MISMATCH, "snapshot hash does not match its content")
-        self._ctx = copy.deepcopy(ctx)
-        self.version = version
-        self.hash = ctx_h
+        self._set_state(version, copy.deepcopy(ctx), seg)
+
+    def checkpoint(self) -> Checkpoint:
+        """O(1) saved state (committed contexts are immutable, so no copy is needed)."""
+        return Checkpoint(self.version, self._ctx, dict(self._seg), self.hash)
+
+    def restore(self, cp: Checkpoint) -> None:
+        self._set_state(cp.version, cp.ctx, dict(cp.seg))
+
+    def verify(self) -> bool:
+        """Re-hash everything from scratch and compare with the incremental hash.
+
+        Incremental hashing only re-checks segments a message changes. This
+        catches silent local corruption of untouched segments; optional, e.g.
+        after a resume (spec 5.5).
+        """
+        return context_hash(self._ctx) == self.hash
 
     # -- internals -----------------------------------------------------------
 
-    def _next(self, role: str, code: int, content: Any, delta: list) -> dict:
-        new_ctx = copy.deepcopy(self._ctx)
-        new_ctx["hist"].append(history_turn(role, code, copy.deepcopy(content)))
-        apply_delta(new_ctx, delta, self.dictionary)
-        return new_ctx
+    def _set_state(self, version: int, ctx: dict, seg: dict) -> None:
+        self._ctx = ctx
+        self._seg = seg
+        self.version = version
+        self.hash = combine_segment_hashes(seg)
 
-    def _commit(self, new_ctx: dict, new_hash: bytes | None = None) -> Step:
+    def _next(self, role: str, code: int, content: Any, delta: list) -> tuple[dict, dict]:
+        touched = _touched_segments(delta, self.dictionary)
+        new_ctx = dict(self._ctx)  # shallow: untouched segments are shared
+        new_seg = dict(self._seg)
+
+        turn = history_turn(role, code, copy.deepcopy(content))
+        new_ctx["hist"] = self._ctx["hist"] + [turn]  # new list, shared turns
+        new_seg["hist"] = chain_hist(self._seg["hist"], turn)
+
+        for name in touched:
+            if name in new_ctx:
+                new_ctx[name] = copy.deepcopy(new_ctx[name])  # copy before writing
+        apply_delta(new_ctx, delta, self.dictionary)
+        for name in touched:
+            if name in new_ctx:
+                new_seg[name] = segment_hash(name, new_ctx[name])
+        return new_ctx, new_seg
+
+    def _commit(self, new_ctx: dict, new_seg: dict) -> Step:
         old = self.version
-        self._ctx = new_ctx
-        self.version = old + 1
-        self.hash = new_hash if new_hash is not None else context_hash(new_ctx)
+        self._set_state(old + 1, new_ctx, new_seg)
         return Step(version=old, new_version=self.version, new_hash=self.hash)
 
 
@@ -259,6 +318,7 @@ __all__ = [
     "CLIENT",
     "SERVER",
     "SEGMENTS",
+    "Checkpoint",
     "ContextStore",
     "DeltaError",
     "ResyncRequired",
