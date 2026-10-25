@@ -47,7 +47,8 @@ Agent A (client)                               Agent B (server)
 ## Repository layout
 
 ```
-src/sayonce/     protocol library (codec, messages, context, session)
+src/sayonce/     protocol library (codec, messages, context, transport, session, agents)
+examples/        runnable demos
 tests/           unit tests
 benchmarks/      benchmark harness and baselines
 docs/            proposal, protocol spec (docs/protocol.md), report
@@ -61,6 +62,7 @@ cd sayonce-protocol
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 pytest
+python examples/demo.py --rounds 10 --context-kb 20   # two agents talking
 ```
 
 The protocol is specified in [docs/protocol.md](docs/protocol.md).

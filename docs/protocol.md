@@ -207,8 +207,16 @@ When a `MSG` or `REPLY` arrives:
 
 - The side that receives a `RESYNC` answers with a `SNAPSHOT` of its own current context.
   The **server's** context is authoritative if both sides send `RESYNC` at the same time.
-- After a `SNAPSHOT`, both sides use that version and hash, and the client re-sends its
-  last `MSG` if it was not answered.
+- After a `SNAPSHOT`, both sides use that version and hash.
+
+The two directions work slightly differently:
+
+| Who detects the problem | Flow |
+|---|---|
+| **Server**, on a `MSG` | Server sends `RESYNC` and does not apply the `MSG`. The client **rolls back** its own context to the state before that `MSG`, sends a `SNAPSHOT` of it, then sends the same `MSG` again. Rolling back first makes sure the message ends up in history exactly once. |
+| **Client**, on a `REPLY` | The answer content is still delivered to the caller. The client sends `RESYNC`, the server answers with a `SNAPSHOT` (which already contains the reply), and the client loads it. |
+
+A client gives up after 3 resync attempts for the same `MSG`.
 
 **When does desync happen?** TCP already retransmits lost packets, so packet loss
 (`tc netem loss`) shows up as **extra latency**, not as lost frames. RESYNC is needed when:
