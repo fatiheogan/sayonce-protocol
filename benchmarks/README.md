@@ -113,6 +113,25 @@ The cost table uses example prices; set them with `--price-in`,
 `--price-cached`, `--price-out` and `--price-gb` and state them in the report.
 Preliminary results are in `results/preliminary/` (approximate tokens).
 
+## Cost of recovery (faults)
+
+```bash
+python -m sayonce.bench.faults --context-kb 10 100 --rounds 50 --fault-every 10 --network ideal 3g --out results/faults.csv
+python -m sayonce.bench.analyze results/sweep.csv --network-csv results/net.csv --faults-csv results/faults.csv --out results/analysis
+```
+
+Injects a fault before every Nth round of a SayOnce conversation and
+measures the extra bytes and time against the same round of a fault-free run.
+Kinds: `corrupt_msg`, `server_diverge`, `client_diverge` (each recovered by
+one RESYNC + SNAPSHOT), `drop_resume` (connection lost, session resumed) and
+`server_restart` (session lost, client re-sends its context). A run fails if
+client and server do not end in sync.
+
+First results: one RESYNC costs about one compressed context (≈6 KB at
+10 KB, ≈33 KB at 100 KB) and on 3G one extra round trip plus that transfer
+(≈0.2-0.4 s). Resuming a session the server still holds costs a few hundred
+bytes and one round trip.
+
 ## Network emulation
 
 Two ways to run the same experiments over a slower, lossy link:

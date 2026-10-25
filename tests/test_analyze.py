@@ -2,6 +2,8 @@ import asyncio
 import csv
 
 from sayonce.bench.analyze import build, crossover_round, load
+from sayonce.bench.faults import COLUMNS as FAULT_COLUMNS
+from sayonce.bench.faults import run_fault
 from sayonce.bench.harness import COLUMNS, sweep
 from sayonce.bench.netem import NetConditions
 from sayonce.bench.systems import SYSTEMS
@@ -23,9 +25,18 @@ def test_build_report_and_figures(tmp_path):
     write(ideal, tmp_path / "sweep.csv")
     write(net, tmp_path / "net.csv")
 
-    report = build(tmp_path / "sweep.csv", tmp_path / "out", tmp_path / "net.csv", PRICES)
+    faults = []
+    for kind in ("none", "corrupt_msg", "drop_resume"):
+        faults += asyncio.run(run_fault(kind, 2, 4, 2))
+    with (tmp_path / "faults.csv").open("w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FAULT_COLUMNS)
+        w.writeheader()
+        w.writerows(faults)
+
+    report = build(tmp_path / "sweep.csv", tmp_path / "out", tmp_path / "net.csv", PRICES, tmp_path / "faults.csv")
     text = report.read_text()
-    for section in ("## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6."):
+    assert "corrupt_msg" in text and "drop_resume" in text
+    for section in ("## 1.", "## 2.", "## 3.", "## 4.", "## 5.", "## 6.", "## 7."):
         assert section in text
     for fig in ("fig1_cumulative_bytes", "fig2_cumulative_wire_tokens", "fig3_ablation",
                 "fig4_llm_tokens", "fig5_network_time"):

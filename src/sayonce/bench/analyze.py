@@ -307,7 +307,8 @@ def crossover_round(rows, kb, a="sayonce", b="jsonrpc-gzip") -> int | None:
     return first
 
 
-def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict) -> Path:
+def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict,
+          faults_csv: Path | None = None) -> Path:
     out.mkdir(parents=True, exist_ok=True)
     rows = load(sweep)
     ideal = [r for r in rows if r.get("network", "ideal") == "ideal"] or rows
@@ -445,6 +446,31 @@ def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict) -> Pat
         md += ["The slower the link, the larger the gain. Time savings come from delta; binary "
                "encoding changes little once messages are small.\n"]
 
+    # 7. recovery cost
+    if faults_csv is not None and faults_csv.exists():
+        from .faults import summarize as summarize_faults
+
+        frows = load(faults_csv)
+        summ = summarize_faults(frows)
+        fR = max(r["round"] for r in frows)
+        every = sorted({r["round"] for r in frows if r["is_fault"]})
+        md += [f"## 7. Cost of recovery (SayOnce, {fR} rounds, fault before rounds {every})\n",
+               "Extra cost of one fault compared with the same round of a fault-free run. A RESYNC "
+               "re-sends the whole context once (compressed); resuming a session the server still "
+               "has costs only a new connection.\n"]
+        for net in dict.fromkeys(r["network"] for r in summ):
+            body = []
+            for r in summ:
+                if r["network"] != net or r["fault"] == "none":
+                    continue
+                body.append([r["fault"], f"{r['context_kb']} KB", fmt_bytes(r["setup_bytes"]),
+                             fmt_bytes(max(0, r["extra_bytes_per_fault"])), f"{r['extra_ms_per_fault']:.1f} ms",
+                             r["resyncs"]])
+            md += [f"**{net}**\n", md_table(["fault", "context", "setup (HELLO)", "extra bytes / fault",
+                                             "extra time / fault", "resyncs"], body), ""]
+        md += ["Stateless baselines have no state to recover, but they also cannot detect a corrupted "
+               "message: it simply produces a wrong answer. SayOnce detects it with the context hash.\n"]
+
     report = out / "analysis.md"
     report.write_text("\n".join(md))
     return report
@@ -454,6 +480,7 @@ def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("sweep", type=Path, help="CSV from the harness on an ideal network")
     p.add_argument("--network-csv", type=Path, help="CSV from a harness run with --network profiles")
+    p.add_argument("--faults-csv", type=Path, help="CSV from python -m sayonce.bench.faults")
     p.add_argument("--out", type=Path, default=Path("results/analysis"))
     p.add_argument("--price-in", type=float, default=3.0, help="$ per million input tokens (example)")
     p.add_argument("--price-cached", type=float, default=0.30, help="$ per million cached input tokens (example)")
@@ -461,7 +488,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--price-gb", type=float, default=2.0, help="$ per GB transferred (example)")
     a = p.parse_args(argv)
     prices = {"in": a.price_in, "cached": a.price_cached, "out": a.price_out, "gb": a.price_gb}
-    report = build(a.sweep, a.out, a.network_csv, prices)
+    report = build(a.sweep, a.out, a.network_csv, prices, a.faults_csv)
     print(f"wrote {report} and figures in {a.out}")
 
 
