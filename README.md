@@ -50,7 +50,7 @@ Agent A (client)                               Agent B (server)
 src/sayonce/     protocol library (codec, messages, context, session)
 tests/           unit tests
 benchmarks/      benchmark harness and baselines
-docs/            proposal, design notes, report
+docs/            proposal, protocol spec (docs/protocol.md), report
 ```
 
 ## Getting started
@@ -62,5 +62,7 @@ python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\act
 pip install -e ".[dev]"
 pytest
 ```
+
+The protocol is specified in [docs/protocol.md](docs/protocol.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the team workflow.
