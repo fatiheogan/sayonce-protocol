@@ -1,0 +1,443 @@
+"""Turn harness CSVs into report figures and tables (step 9).
+
+    python -m sayonce.bench.analyze results/sweep.csv --network-csv results/net.csv --out results/analysis
+
+Writes PNG figures and analysis.md (tables) into --out. Every figure has a
+matching table in analysis.md, so no number depends on reading a chart.
+
+Prices used for the cost table are EXAMPLE values (flags --price-*). Set them
+to the provider and data plan you want to discuss, and say so in the report.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import math
+from collections import defaultdict
+from pathlib import Path
+from typing import Iterable
+
+import matplotlib
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402
+
+# ------------------------------------------------------------------ style
+# Categorical slots are fixed per system (colour follows the entity, never rank).
+# Palette validated for CVD separation; contrast is relieved by direct labels
+# and by the tables in analysis.md.
+SERIES = {
+    "sayonce":      {"color": "#2a78d6", "marker": "o", "label": "SayOnce"},
+    "jsonrpc":      {"color": "#eb6834", "marker": "s", "label": "JSON-RPC"},
+    "jsonrpc-gzip": {"color": "#1baf7a", "marker": "^", "label": "JSON-RPC+gzip"},
+    "jsonrpc-zstd": {"color": "#eda100", "marker": "v", "label": "JSON-RPC+zstd"},
+    "cbor-full":    {"color": "#e87ba4", "marker": "D", "label": "CBOR, no delta"},
+    "json-delta":   {"color": "#008300", "marker": "P", "label": "JSON + delta"},
+}
+ORDER = ["jsonrpc", "jsonrpc-gzip", "jsonrpc-zstd", "cbor-full", "json-delta", "sayonce"]
+SURFACE, INK, INK2, GRID = "#fcfcfb", "#2b2b2a", "#6b6a64", "#e6e5e0"
+
+plt.rcParams.update({
+    "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.facecolor": SURFACE,
+    "axes.edgecolor": GRID, "axes.labelcolor": INK2, "axes.titlecolor": INK,
+    "xtick.color": INK2, "ytick.color": INK2, "text.color": INK,
+    "axes.grid": True, "grid.color": GRID, "grid.linewidth": 0.8,
+    "axes.spines.top": False, "axes.spines.right": False,
+    "font.size": 9, "axes.titlesize": 10, "axes.titleweight": "bold",
+    "lines.linewidth": 2, "lines.markersize": 4, "axes.axisbelow": True,
+})
+
+
+def fmt_bytes(n: float) -> str:
+    for unit, div in (("GB", 1e9), ("MB", 1e6), ("KB", 1e3)):
+        if n >= div:
+            return f"{n / div:.3g} {unit}"
+    return f"{n:.0f} B"
+
+
+def fmt_num(n: float) -> str:
+    for unit, div in (("M", 1e6), ("k", 1e3)):
+        if n >= div:
+            return f"{n / div:.3g}{unit}"
+    return f"{n:.0f}"
+
+
+# ------------------------------------------------------------------ data
+
+
+def load(path: Path) -> list[dict]:
+    with path.open() as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        for k, v in r.items():
+            if k in ("system", "workload", "network", "intent", "tokenizer"):
+                continue
+            try:
+                r[k] = float(v) if "." in v or "e" in v else int(v)
+            except (ValueError, TypeError):
+                pass
+    return rows
+
+
+def present(rows: list[dict]) -> list[str]:
+    have = {r["system"] for r in rows}
+    return [s for s in ORDER if s in have]
+
+
+def series(rows, system, kb, col, network=None, repeat=0):
+    rs = [r for r in rows if r["system"] == system and r["context_kb"] == kb and r["repeat"] == repeat
+          and (network is None or r["network"] == network)]
+    rs.sort(key=lambda r: r["round"])
+    return [r["round"] for r in rs], [r[col] for r in rs]
+
+
+def at_round(rows, system, kb, col, rnd, network=None):
+    xs, ys = series(rows, system, kb, col, network)
+    return ys[xs.index(rnd)] if rnd in xs else None
+
+
+# ------------------------------------------------------------------ figures
+
+
+def _end_labels(ax, ends: list[tuple[float, str, str]], log: bool) -> None:
+    """Direct labels at line ends, nudged apart so they never overlap."""
+    if not ends:
+        return
+    tr = (lambda v: math.log10(max(v, 1e-9))) if log else (lambda v: v)
+    inv = (lambda v: 10 ** v) if log else (lambda v: v)
+    lo, hi = ax.get_ylim()
+    span = tr(hi) - tr(lo)
+    gap = span * 0.065
+    items = sorted(((tr(y), text, color) for y, text, color in ends), key=lambda t: t[0])
+    placed: list[float] = []
+    for y, _, _ in items:
+        placed.append(max(y, placed[-1] + gap) if placed else y)
+    overflow = placed[-1] - (tr(hi) - gap * 0.3)  # shift down if pushed off the top
+    if overflow > 0:
+        placed = [p - overflow for p in placed]
+    x = ax.get_xlim()[1]
+    for (_, text, color), y in zip(items, placed):
+        ax.annotate(text, xy=(x, inv(y)), xytext=(6, 0), textcoords="offset points",
+                    va="center", fontsize=8, color=INK, annotation_clip=False)
+        ax.plot([x], [inv(y)], marker="s", markersize=5, color=color, clip_on=False)
+
+
+def _shared_legend(fig, systems: list[str]) -> None:
+    handles = [plt.Line2D([], [], color=SERIES[s]["color"], marker=SERIES[s]["marker"], markersize=5)
+               for s in systems]
+    fig.legend(handles, [SERIES[s]["label"] for s in systems], loc="upper left", bbox_to_anchor=(0.01, 0.95),
+               ncol=len(systems), frameon=False, fontsize=8.5, handlelength=1.8, columnspacing=1.6)
+
+
+def fig_cumulative(rows, col: str, ylabel: str, title: str, path: Path, systems: list[str],
+                   network: str | None = None) -> None:
+    """Small multiples, one per context size. Starts at round 1 (setup is included in the
+    cumulative value); round 0 of stateless systems is 0 and cannot be drawn on a log axis."""
+    kbs = sorted({r["context_kb"] for r in rows if network is None or r["network"] == network})
+    fig, axes = plt.subplots(1, len(kbs), figsize=(3.3 * len(kbs), 3.6), squeeze=False)
+    for ax, kb in zip(axes[0], kbs):
+        for s in systems:
+            xs, ys = series(rows, s, kb, col, network)
+            pts = [(x, y) for x, y in zip(xs, ys) if x >= 1]
+            if not pts:
+                continue
+            xs, ys = zip(*pts)
+            st = SERIES[s]
+            ax.plot(xs, ys, color=st["color"], marker=st["marker"], markevery=max(1, len(xs) // 6))
+        ax.set_yscale("log")
+        ax.set_xlim(left=1)
+        ax.set_title(f"{kb} KB context", loc="left")
+        ax.set_xlabel("round")
+        ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(
+            lambda v, _: fmt_bytes(v) if "bytes" in col else fmt_num(v)))
+        ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    axes[0][0].set_ylabel(ylabel)
+    fig.suptitle(title, x=0.01, y=0.99, ha="left", fontweight="bold", fontsize=11)
+    _shared_legend(fig, systems)
+    fig.tight_layout(rect=(0, 0, 1, 0.89))
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+
+
+def fig_ablation(rows, rnd: int, path: Path) -> list[list]:
+    """2x2 ablation: encoding (JSON / CBOR) x context (full / delta), cumulative bytes at rnd."""
+    cells = [("jsonrpc", "JSON", "full"), ("cbor-full", "CBOR", "full"),
+             ("json-delta", "JSON", "delta"), ("sayonce", "CBOR", "delta")]
+    kbs = sorted({r["context_kb"] for r in rows})
+    fig, axes = plt.subplots(1, len(kbs), figsize=(3.4 * len(kbs), 2.6), squeeze=False)
+    table = []
+    labels = [f"{enc} / {ctx}" for _, enc, ctx in cells]
+    for i, (ax, kb) in enumerate(zip(axes[0], kbs)):
+        vals = [at_round(rows, s, kb, "cum_bytes", rnd) or 0 for s, _, _ in cells]
+        ypos = list(range(len(cells)))[::-1]  # first cell on top
+        # Dot plot, not bars: bar length means nothing on a log axis.
+        for y, v, (s, _, _) in zip(ypos, vals, cells):
+            ax.plot([v], [y], marker="o", markersize=8, color=SERIES[s]["color"],
+                    markeredgecolor=SURFACE, markeredgewidth=2, linestyle="none")
+            ax.annotate(fmt_bytes(v), xy=(v, y), xytext=(8, 0), textcoords="offset points",
+                        va="center", fontsize=8, color=INK)
+        ax.set_xscale("log")
+        ax.set_xlim(min(vals) / 2.5, max(vals) * 6)
+        ax.set_ylim(-0.6, len(cells) - 0.4)
+        ax.set_yticks(ypos, labels if i == 0 else [""] * len(cells))
+        ax.set_title(f"{kb} KB context", loc="left")
+        ax.grid(axis="y", visible=False)
+        ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: fmt_bytes(v)))
+        ax.xaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+        table.append([kb, *vals])
+    fig.suptitle(f"Ablation: cumulative bytes after {rnd} rounds (encoding / context)", x=0.01, ha="left",
+                 fontweight="bold", fontsize=11)
+    fig.tight_layout()
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+    return table
+
+
+def total_time(rows, system, kb, network) -> float:
+    return sum(r["latency_ms"] for r in rows if r["system"] == system and r["context_kb"] == kb
+               and r["network"] == network and r["repeat"] == 0) / 1000
+
+
+def fig_network(rows, path: Path) -> dict:
+    """Small multiples: one row per context size, one column per link, linear y per panel.
+
+    Links differ in scale by 1000x, so each panel has its own linear axis instead of
+    one log axis (bar length is only meaningful on a linear axis from zero).
+    """
+    nets = list(dict.fromkeys(r["network"] for r in rows))
+    kbs = sorted({r["context_kb"] for r in rows})
+    systems = present(rows)
+    out = {(kb, s): [total_time(rows, s, kb, n) for n in nets] for kb in kbs for s in systems}
+    fig, axes = plt.subplots(len(kbs), len(nets), figsize=(2.5 * len(nets), 2.3 * len(kbs) + 0.8), squeeze=False)
+    for i, kb in enumerate(kbs):
+        for j, net in enumerate(nets):
+            ax = axes[i][j]
+            vals = [out[(kb, s)][j] for s in systems]
+            ax.bar(range(len(systems)), vals, color=[SERIES[s]["color"] for s in systems], width=0.78,
+                   edgecolor=SURFACE, linewidth=2)
+            top = max(vals)
+            for x, v in enumerate(vals):
+                ax.annotate(f"{v:.3g}", xy=(x, v), xytext=(0, 2),
+                            textcoords="offset points", ha="center", va="bottom", fontsize=6.5, color=INK2)
+            ax.set_ylim(0, top * 1.18)
+            ax.set_xticks([])
+            ax.grid(axis="x", visible=False)
+            ax.set_title(f"{net}, {kb} KB", loc="left", fontsize=9)
+            if j == 0:
+                ax.set_ylabel("seconds")
+    n_rounds = max(r["round"] for r in rows)
+    fig.suptitle(f"Total time for setup + {n_rounds} rounds, by link (each panel has its own scale)",
+                 x=0.01, y=0.995, ha="left", fontweight="bold", fontsize=11)
+    handles = [plt.Rectangle((0, 0), 1, 1, color=SERIES[s]["color"]) for s in systems]
+    fig.legend(handles, [SERIES[s]["label"] for s in systems], loc="upper left",
+               bbox_to_anchor=(0.01, 0.965), ncol=len(systems), frameon=False, fontsize=8.5)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+    return out
+
+
+def fig_llm_tokens(rows, kb: int, path: Path) -> tuple[list, list, list]:
+    # Not about protocols (identical in every system), so it uses colours no system owns.
+    total_c, uncached_c = "#8a8983", "#6250d6"
+    xs, prompt = series(rows, "sayonce", kb, "llm_prompt_tokens")
+    _, uncached = series(rows, "sayonce", kb, "llm_uncached_tokens")
+    cum_p, cum_u, a, b = [], [], 0, 0
+    for p, u in zip(prompt, uncached):
+        a += p
+        b += u
+        cum_p.append(a)
+        cum_u.append(b)
+    keep = [i for i, x in enumerate(xs) if x >= 1]
+    px, pp, pu = [xs[i] for i in keep], [cum_p[i] for i in keep], [cum_u[i] for i in keep]
+    fig, ax = plt.subplots(figsize=(6.4, 3.4))
+    ax.plot(px, pp, color=total_c, marker="s", markevery=max(1, len(px) // 6))
+    ax.plot(px, pu, color=uncached_c, marker="o", markevery=max(1, len(px) // 6))
+    ax.set_yscale("log")
+    ax.set_xlim(left=1)
+    ax.set_xlabel("round")
+    ax.set_ylabel("cumulative LLM input tokens")
+    ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: fmt_num(v)))
+    ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+    _end_labels(ax, [(pp[-1], "all prompt tokens", total_c),
+                     (pu[-1], "not a repeated prefix", uncached_c)], log=True)
+    fig.suptitle(f"What the worker's LLM reads, {kb} KB context", x=0.01, ha="left", fontweight="bold", fontsize=11)
+    ax.set_title("identical for every protocol; the gap is what a prefix cache can serve",
+                 loc="left", fontsize=8.5, fontweight="normal", color=INK2)
+    fig.tight_layout(rect=(0, 0, 0.78, 1))
+    fig.savefig(path, dpi=200)
+    plt.close(fig)
+    return xs, cum_p, cum_u
+
+
+# ------------------------------------------------------------------ tables
+
+
+def md_table(header: list[str], rows: Iterable[list]) -> str:
+    lines = ["| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    lines += ["| " + " | ".join(str(c) for c in r) + " |" for r in rows]
+    return "\n".join(lines)
+
+
+def crossover_round(rows, kb, a="sayonce", b="jsonrpc-gzip") -> int | None:
+    """First round from which a's cumulative bytes stay below b's."""
+    xa, ya = series(rows, a, kb, "cum_bytes")
+    xb, yb = series(rows, b, kb, "cum_bytes")
+    if not xa or not xb:
+        return None
+    first = None
+    for r, va, vb in zip(xa, ya, yb):
+        if va < vb:
+            first = r if first is None else first
+        else:
+            first = None
+    return first
+
+
+def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict) -> Path:
+    out.mkdir(parents=True, exist_ok=True)
+    rows = load(sweep)
+    ideal = [r for r in rows if r.get("network", "ideal") == "ideal"] or rows
+    systems = present(ideal)
+    kbs = sorted({r["context_kb"] for r in ideal})
+    R = max(r["round"] for r in ideal)
+    marks = [n for n in (1, 5, 10, 20, 50, 100) if n <= R]
+    tokenizer = ideal[0]["tokenizer"]
+    md: list[str] = [f"# SayOnce benchmark analysis\n",
+                     f"Source: `{sweep}` ({len(rows)} rows), tokenizer `{tokenizer}`, up to {R} rounds.",
+                     ""]
+    if tokenizer != "o200k_base":
+        md += ["> **Preliminary:** token counts are approximate (tiktoken was not available). "
+               "Re-run the harness with tiktoken before using token numbers in the report.\n"]
+
+    # 1. cumulative bytes
+    fig_cumulative(ideal, "cum_bytes", "cumulative bytes (log)",
+                   "Bytes on the wire grow with every round unless only deltas are sent",
+                   out / "fig1_cumulative_bytes.png", systems)
+    md += ["## 1. Cumulative bytes on the wire\n", "![](fig1_cumulative_bytes.png)\n"]
+    for kb in kbs:
+        body = []
+        for s in systems:
+            body.append([SERIES[s]["label"], *[fmt_bytes(at_round(ideal, s, kb, "cum_bytes", n)) for n in marks]])
+        ref = at_round(ideal, "jsonrpc", kb, "cum_bytes", R)
+        so = at_round(ideal, "sayonce", kb, "cum_bytes", R)
+        md += [f"**{kb} KB context**\n", md_table(["system", *[f"round {n}" for n in marks]], body), ""]
+        if ref and so:
+            line = f"After {R} rounds SayOnce sends {ref / so:.1f}x fewer bytes than JSON-RPC"
+            gz = at_round(ideal, "jsonrpc-gzip", kb, "cum_bytes", R)
+            if gz:
+                line += f" and {gz / so:.1f}x fewer than JSON-RPC+gzip"
+            cr = crossover_round(ideal, kb)
+            if cr is not None and cr > 1:
+                line += f"; it stays below gzip from round {cr} on (the uncompressed HELLO costs more at first)"
+            md += [line + ".\n"]
+
+    # header share
+    hb = [[kb, f"{100 * sum(r['header_bytes'] for r in ideal if r['system'] == 'jsonrpc' and r['context_kb'] == kb) / max(1, at_round(ideal, 'jsonrpc', kb, 'cum_bytes', R)):.1f} %",
+           f"{100 * sum(r['header_bytes'] for r in ideal if r['system'] == 'json-delta' and r['context_kb'] == kb) / max(1, at_round(ideal, 'json-delta', kb, 'cum_bytes', R)):.1f} %"]
+          for kb in kbs if "json-delta" in systems and "jsonrpc" in systems]
+    if hb:
+        md += ["HTTP header share of all bytes:\n", md_table(["context", "JSON-RPC", "JSON + delta"], hb), ""]
+
+    # 2. wire tokens
+    tok_systems = [s for s in systems if s not in ("jsonrpc-gzip", "jsonrpc-zstd")]
+    fig_cumulative(ideal, "cum_wire_tokens", "cumulative tokens (log)",
+                   "Tokens of information exchanged between the agents",
+                   out / "fig2_cumulative_wire_tokens.png", tok_systems)
+    md += ["## 2. Tokens exchanged between the agents\n", "![](fig2_cumulative_wire_tokens.png)\n",
+           "Tokens measure information, not encoding: compression does not change them (gzip/zstd "
+           "are left out), and the CBOR full-context line lies on top of JSON-RPC because both "
+           "carry the same information.\n"]
+    for kb in kbs:
+        body = [[SERIES[s]["label"], *[fmt_num(at_round(ideal, s, kb, "cum_wire_tokens", n)) for n in marks]]
+                for s in tok_systems]
+        md += [f"**{kb} KB context**\n", md_table(["system", *[f"round {n}" for n in marks]], body), ""]
+
+    # 3. ablation
+    if all(s in systems for s in ("jsonrpc", "cbor-full", "json-delta", "sayonce")):
+        table = fig_ablation(ideal, R, out / "fig3_ablation.png")
+        md += [f"## 3. Ablation: what does each idea contribute? ({R} rounds)\n", "![](fig3_ablation.png)\n"]
+        body = []
+        for kb, j, c, jd, s in table:
+            body.append([f"{kb} KB", fmt_bytes(j), fmt_bytes(c), fmt_bytes(jd), fmt_bytes(s),
+                         f"{j / c:.2f}x", f"{j / jd:.1f}x", f"{jd / s:.2f}x", f"{j / s:.1f}x"])
+        md += [md_table(["context", "JSON/full", "CBOR/full", "JSON/delta", "CBOR/delta (SayOnce)",
+                         "binary alone", "delta alone", "binary on top of delta", "both"], body), "",
+               "Delta is the main gain. Binary encoding alone saves little when the full context is "
+               "sent (the context text dominates), but on top of delta it matters more, because the "
+               "remaining messages are small and their JSON keys, framing and HTTP headers become "
+               "a large share of each message.\n"]
+
+    # 4. LLM tokens
+    kb_big = kbs[-1]
+    xs, cum_p, cum_u = fig_llm_tokens(ideal, kb_big, out / "fig4_llm_tokens.png")
+    md += [f"## 4. What the worker's LLM reads ({kb_big} KB context)\n", "![](fig4_llm_tokens.png)\n",
+           "The worker renders the whole shared context as its prompt every round, in every system, "
+           "so LLM input tokens are identical across protocols. What changes is how much of that "
+           "prompt is a repeated prefix that a provider prefix cache can serve.\n",
+           md_table(["", f"after {R} rounds"],
+                    [["LLM input tokens", fmt_num(cum_p[-1])],
+                     ["of which not a repeated prefix", fmt_num(cum_u[-1])],
+                     ["cacheable share", f"{100 * (1 - cum_u[-1] / cum_p[-1]):.1f} %"]]), ""]
+
+    # 5. cost per 1k conversations
+    md += [f"## 5. Cost per 1,000 conversations of {R} rounds\n",
+           f"Example prices (set with --price-*): input ${prices['in']}/M tokens, cached input "
+           f"${prices['cached']}/M, output ${prices['out']}/M, data ${prices['gb']}/GB. "
+           "**These are assumptions, not quotes.**\n"]
+    for kb in kbs:
+        llm = {k: sum(r[k] for r in ideal if r["system"] == "sayonce" and r["context_kb"] == kb)
+               for k in ("llm_prompt_tokens", "llm_uncached_tokens", "llm_prefix_cached_tokens", "llm_output_tokens")}
+        no_cache = (llm["llm_prompt_tokens"] * prices["in"] + llm["llm_output_tokens"] * prices["out"]) / 1e6 * 1000
+        cached = (llm["llm_uncached_tokens"] * prices["in"] + llm["llm_prefix_cached_tokens"] * prices["cached"]
+                  + llm["llm_output_tokens"] * prices["out"]) / 1e6 * 1000
+        body = [[SERIES[s]["label"], f"${at_round(ideal, s, kb, 'cum_bytes', R) / 1e9 * prices['gb'] * 1000:,.2f}"]
+                for s in systems]
+        md += [f"**{kb} KB context**\n",
+               md_table(["system", "data transfer cost"], body), "",
+               md_table(["LLM cost (same for every system)", "per 1k conversations"],
+                        [["prompt re-read every round, no cache", f"${no_cache:,.2f}"],
+                         ["with prefix caching", f"${cached:,.2f}"]]), ""]
+    md += ["LLM cost dominates data cost by orders of magnitude. The protocol's direct saving is in "
+           "transfer (bytes, time on slow links). Its LLM-side contribution is indirect: a stable, "
+           "versioned context makes prefix caching reliable.\n"]
+
+    # 6. network
+    if network_csv is not None and network_csv.exists():
+        nrows = load(network_csv)
+        times = fig_network(nrows, out / "fig5_network_time.png")
+        nets = list(dict.fromkeys(r["network"] for r in nrows))
+        nR = max(r["round"] for r in nrows)
+        md += [f"## 6. Time over emulated links ({nR} rounds, setup included)\n", "![](fig5_network_time.png)\n"]
+        for kb in sorted({k for k, _ in times}):
+            body = [[SERIES[s]["label"], *[f"{v:.2f} s" for v in times[(kb, s)]]] for s in present(nrows)]
+            if (kb, "jsonrpc") in times and (kb, "sayonce") in times:
+                body.append(["**JSON-RPC / SayOnce**", *[f"**{a / b:.1f}x**" if b else "-"
+                                                         for a, b in zip(times[(kb, "jsonrpc")], times[(kb, "sayonce")])]])
+            md += [f"**{kb} KB context**\n", md_table(["system", *nets], body), ""]
+        md += ["The slower the link, the larger the gain. Time savings come from delta; binary "
+               "encoding changes little once messages are small.\n"]
+
+    report = out / "analysis.md"
+    report.write_text("\n".join(md))
+    return report
+
+
+def main(argv: list[str] | None = None) -> None:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("sweep", type=Path, help="CSV from the harness on an ideal network")
+    p.add_argument("--network-csv", type=Path, help="CSV from a harness run with --network profiles")
+    p.add_argument("--out", type=Path, default=Path("results/analysis"))
+    p.add_argument("--price-in", type=float, default=3.0, help="$ per million input tokens (example)")
+    p.add_argument("--price-cached", type=float, default=0.30, help="$ per million cached input tokens (example)")
+    p.add_argument("--price-out", type=float, default=15.0, help="$ per million output tokens (example)")
+    p.add_argument("--price-gb", type=float, default=2.0, help="$ per GB transferred (example)")
+    a = p.parse_args(argv)
+    prices = {"in": a.price_in, "cached": a.price_cached, "out": a.price_out, "gb": a.price_gb}
+    report = build(a.sweep, a.out, a.network_csv, prices)
+    print(f"wrote {report} and figures in {a.out}")
+
+
+if __name__ == "__main__":
+    main()

@@ -44,7 +44,7 @@ COLUMNS = [
     "repeat", "round", "intent",
     "bytes_sent", "bytes_received", "bytes_total", "header_bytes", "cum_bytes",
     "wire_tokens_sent", "wire_tokens_received", "wire_tokens_total", "cum_wire_tokens",
-    "llm_prompt_tokens", "llm_prefix_cached_tokens", "llm_uncached_tokens",
+    "llm_prompt_tokens", "llm_prefix_cached_tokens", "llm_uncached_tokens", "llm_output_tokens",
     "latency_ms", "cpu_ms", "net_segments", "net_lost_segments", "tokenizer",
 ]
 
@@ -141,6 +141,7 @@ async def run_one(cfg: RunConfig, counter: TokenCounter | None = None, cache: _T
                  "wire_tokens_sent": setup_tokens, "wire_tokens_received": 0,
                  "wire_tokens_total": setup_tokens, "cum_wire_tokens": cum_tokens,
                  "llm_prompt_tokens": 0, "llm_prefix_cached_tokens": 0, "llm_uncached_tokens": 0,
+                 "llm_output_tokens": 0,
                  "latency_ms": round(setup_wall * 1000, 3), "cpu_ms": round(setup_cpu * 1000, 3)})
 
     prev_prompt_tokens: list | None = None
@@ -153,15 +154,16 @@ async def run_one(cfg: RunConfig, counter: TokenCounter | None = None, cache: _T
             cached = cache.prefix(prev_prompt_tokens, ptoks) if prev_prompt_tokens is not None else 0
             prev_prompt_tokens = ptoks
             llm_in = len(ptoks)
+            llm_out = counter.count(str(res.content))
         else:
-            llm_in = cached = 0
+            llm_in = cached = llm_out = 0
         rows.append({**base, "round": i, "intent": rnd.intent.name,
                      "bytes_sent": res.bytes_sent, "bytes_received": res.bytes_received,
                      "bytes_total": res.bytes_total, "header_bytes": res.header_bytes, "cum_bytes": cum_bytes,
                      "wire_tokens_sent": ts, "wire_tokens_received": tr, "wire_tokens_total": ts + tr,
                      "cum_wire_tokens": cum_tokens,
                      "llm_prompt_tokens": llm_in, "llm_prefix_cached_tokens": cached,
-                     "llm_uncached_tokens": llm_in - cached,
+                     "llm_uncached_tokens": llm_in - cached, "llm_output_tokens": llm_out,
                      "latency_ms": round(res.latency_s * 1000, 3), "cpu_ms": round(cpu * 1000, 3)})
     return rows
 

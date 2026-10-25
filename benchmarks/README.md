@@ -100,6 +100,19 @@ every row. Only `o200k_base` numbers belong in the report.
    2.4 ms vs 3.3 ms for JSON-RPC). Most of the remaining time is the mock LLM
    rendering the prompt, which is the same in every system.
 
+## Analysis (figures and tables)
+
+```bash
+python -m sayonce.bench.analyze results/sweep.csv --network-csv results/net.csv --out results/analysis
+```
+
+Writes `analysis.md` (every figure has a matching table) and five figures:
+cumulative bytes, tokens exchanged between agents, the 2x2 ablation, what the
+worker LLM reads (with the prefix-cacheable share), and total time per link.
+The cost table uses example prices; set them with `--price-in`,
+`--price-cached`, `--price-out` and `--price-gb` and state them in the report.
+Preliminary results are in `results/preliminary/` (approximate tokens).
+
 ## Network emulation
 
 Two ways to run the same experiments over a slower, lossy link:
