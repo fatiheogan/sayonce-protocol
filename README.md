@@ -56,8 +56,8 @@ docs/            proposal, design notes, report
 ## Getting started
 
 ```bash
-git clone https://github.com/fatiheogan/sayonce-protocol-.git
-cd sayonce-protocol-
+git clone https://github.com/fatiheogan/sayonce-protocol.git
+cd sayonce-protocol
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 pytest
