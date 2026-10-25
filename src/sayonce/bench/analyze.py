@@ -206,9 +206,47 @@ def fig_ablation(rows, rnd: int, path: Path) -> list[list]:
     return table
 
 
+_T95 = {1: 12.706, 2: 4.303, 3: 3.182, 4: 2.776, 5: 2.571, 6: 2.447, 7: 2.365, 8: 2.306, 9: 2.262,
+        10: 2.228, 12: 2.179, 15: 2.131, 20: 2.086, 25: 2.060, 30: 2.042}
+
+
+def t95(df: int) -> float:
+    """Two-sided 95% Student t critical value (normal approximation above 30)."""
+    if df in _T95:
+        return _T95[df]
+    smaller = [k for k in _T95 if k < df]
+    return 1.96 if df > 30 else _T95[max(smaller)]
+
+
+def mean_ci(values: list[float]) -> tuple[float, float, int]:
+    """(mean, half-width of the 95% confidence interval, n). Half-width is 0 for n < 2."""
+    n = len(values)
+    if n == 0:
+        return float("nan"), 0.0, 0
+    m = sum(values) / n
+    if n < 2:
+        return m, 0.0, n
+    var = sum((v - m) ** 2 for v in values) / (n - 1)
+    return m, t95(n - 1) * math.sqrt(var / n), n
+
+
+def total_times(rows, system, kb, network) -> list[float]:
+    """Total wall time (setup + all rounds) in seconds, one value per repeat."""
+    acc: dict[int, float] = defaultdict(float)
+    for r in rows:
+        if r["system"] == system and r["context_kb"] == kb and r["network"] == network:
+            acc[r["repeat"]] += r["latency_ms"] / 1000
+    return [acc[k] for k in sorted(acc)]
+
+
 def total_time(rows, system, kb, network) -> float:
-    return sum(r["latency_ms"] for r in rows if r["system"] == system and r["context_kb"] == kb
-               and r["network"] == network and r["repeat"] == 0) / 1000
+    return mean_ci(total_times(rows, system, kb, network))[0]
+
+
+def fmt_ci(m: float, h: float, n: int, unit: str = "s") -> str:
+    if n < 2:
+        return f"{m:.3g} {unit}"
+    return f"{m:.3g} ± {h:.2g} {unit}"
 
 
 def fig_network(rows, path: Path) -> dict:
@@ -220,26 +258,33 @@ def fig_network(rows, path: Path) -> dict:
     nets = list(dict.fromkeys(r["network"] for r in rows))
     kbs = sorted({r["context_kb"] for r in rows})
     systems = present(rows)
-    out = {(kb, s): [total_time(rows, s, kb, n) for n in nets] for kb in kbs for s in systems}
+    out = {(kb, s): [mean_ci(total_times(rows, s, kb, n)) for n in nets] for kb in kbs for s in systems}
     fig, axes = plt.subplots(len(kbs), len(nets), figsize=(2.5 * len(nets), 2.3 * len(kbs) + 0.8), squeeze=False)
     for i, kb in enumerate(kbs):
         for j, net in enumerate(nets):
             ax = axes[i][j]
-            vals = [out[(kb, s)][j] for s in systems]
+            stats = [out[(kb, s)][j] for s in systems]
+            vals = [m for m, _, _ in stats]
+            errs = [h for _, h, _ in stats]
             ax.bar(range(len(systems)), vals, color=[SERIES[s]["color"] for s in systems], width=0.78,
                    edgecolor=SURFACE, linewidth=2)
-            top = max(vals)
-            for x, v in enumerate(vals):
-                ax.annotate(f"{v:.3g}", xy=(x, v), xytext=(0, 2),
+            if any(errs):
+                ax.errorbar(range(len(systems)), vals, yerr=errs, fmt="none", ecolor=INK, elinewidth=1,
+                            capsize=2.5, capthick=1)
+            top = max(v + e for v, e in zip(vals, errs))
+            for x, (v, e) in enumerate(zip(vals, errs)):
+                ax.annotate(f"{v:.3g}", xy=(x, v + e), xytext=(0, 2),
                             textcoords="offset points", ha="center", va="bottom", fontsize=6.5, color=INK2)
-            ax.set_ylim(0, top * 1.18)
+            ax.set_ylim(0, top * 1.2)
             ax.set_xticks([])
             ax.grid(axis="x", visible=False)
             ax.set_title(f"{net}, {kb} KB", loc="left", fontsize=9)
             if j == 0:
                 ax.set_ylabel("seconds")
     n_rounds = max(r["round"] for r in rows)
-    fig.suptitle(f"Total time for setup + {n_rounds} rounds, by link (each panel has its own scale)",
+    reps = len({r["repeat"] for r in rows})
+    ci = f", mean ± 95% CI of {reps} runs" if reps > 1 else ""
+    fig.suptitle(f"Total time for setup + {n_rounds} rounds, by link{ci} (each panel has its own scale)",
                  x=0.01, y=0.995, ha="left", fontweight="bold", fontsize=11)
     handles = [plt.Rectangle((0, 0), 1, 1, color=SERIES[s]["color"]) for s in systems]
     fig.legend(handles, [SERIES[s]["label"] for s in systems], loc="upper left",
@@ -437,10 +482,14 @@ def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict,
         nets = list(dict.fromkeys(r["network"] for r in nrows))
         nR = max(r["round"] for r in nrows)
         md += [f"## 6. Time over emulated links ({nR} rounds, setup included)\n", "![](fig5_network_time.png)\n"]
+        reps = len({r["repeat"] for r in nrows})
+        md += [f"Mean ± 95% confidence interval over {reps} runs (Student t). Bytes are deterministic; "
+               "time varies with emulated loss and scheduling.\n" if reps > 1 else
+               "Single run: re-run the harness with `--repeats 3` or more to get confidence intervals.\n"]
         for kb in sorted({k for k, _ in times}):
-            body = [[SERIES[s]["label"], *[f"{v:.2f} s" for v in times[(kb, s)]]] for s in present(nrows)]
+            body = [[SERIES[s]["label"], *[fmt_ci(*c) for c in times[(kb, s)]]] for s in present(nrows)]
             if (kb, "jsonrpc") in times and (kb, "sayonce") in times:
-                body.append(["**JSON-RPC / SayOnce**", *[f"**{a / b:.1f}x**" if b else "-"
+                body.append(["**JSON-RPC / SayOnce**", *[f"**{a[0] / b[0]:.1f}x**" if b[0] else "-"
                                                          for a, b in zip(times[(kb, "jsonrpc")], times[(kb, "sayonce")])]])
             md += [f"**{kb} KB context**\n", md_table(["system", *nets], body), ""]
         md += ["The slower the link, the larger the gain. Time savings come from delta; binary "

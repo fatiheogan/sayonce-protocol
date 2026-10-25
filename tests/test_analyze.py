@@ -63,3 +63,13 @@ def test_crossover_round():
         rows.append({"system": "sayonce", "context_kb": 1, "repeat": 0, "round": i, "cum_bytes": x})
         rows.append({"system": "jsonrpc-gzip", "context_kb": 1, "repeat": 0, "round": i, "cum_bytes": y})
     assert crossover_round(rows, 1) == 2
+
+
+def test_mean_ci():
+    from sayonce.bench.analyze import mean_ci, t95
+
+    m, h, n = mean_ci([10.0, 12.0, 14.0])
+    assert (m, n) == (12.0, 3)
+    assert abs(h - t95(2) * 2 / 3 ** 0.5) < 1e-9  # sd = 2
+    assert mean_ci([5.0]) == (5.0, 0.0, 1)
+    assert t95(1000) == 1.96 and t95(11) == t95(10)
