@@ -22,13 +22,14 @@
     "jsonrpc-zstd",
     "cbor-full",
     "json-delta",
+    "sayonce-raw",
     "sayonce"
   ],
   "tokenizer": "approx",
   "python": "3.13.17",
   "platform": "Linux-6.18.44-fc-v153-x86_64-with-glibc2.39",
-  "started": "2026-10-25T17:07:55",
-  "duration_s": 8.2,
+  "started": "2026-10-25T17:24:28",
+  "duration_s": 9.7,
   "networks": [
     {
       "delay_ms": 0.0,
