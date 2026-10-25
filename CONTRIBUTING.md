@@ -15,7 +15,8 @@
 pytest
 ```
 
-All tests should pass.
+All tests should pass. GitHub Actions runs the same tests on Python 3.10-3.13
+for every PR; a PR with a red check is not merged.
 
 ## Code style
 

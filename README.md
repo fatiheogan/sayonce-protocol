@@ -1,5 +1,7 @@
 # SayOnce
 
+[![tests](https://github.com/fatiheogan/sayonce-protocol/actions/workflows/tests.yml/badge.svg)](https://github.com/fatiheogan/sayonce-protocol/actions/workflows/tests.yml)
+
 **A token- and bandwidth-efficient communication protocol for AI agents.**
 
 CSE 476/575 Mobile Communication and Networks, Fall 2026, Gebze Technical University
