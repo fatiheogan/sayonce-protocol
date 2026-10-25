@@ -151,3 +151,37 @@ New CSV columns: `network`, `delay_ms`, `loss`, `bandwidth_mbps`,
 `net_segments`, `net_lost_segments`. The setup row (round 0) now records the
 setup latency, which matters because SayOnce sends the context there.
 
+### First network results (in-process proxy, mock LLM)
+
+Total wall time for setup plus 20 rounds, in seconds (lower is better):
+
+| Network | Context | jsonrpc | jsonrpc-gzip | cbor-full | json-delta | sayonce | SayOnce vs jsonrpc |
+|---|---|---|---|---|---|---|---|
+| ideal | 10 KB | 0.02 | 0.03 | 0.02 | 0.02 | 0.02 | 0.8x faster |
+| ideal | 100 KB | 0.06 | 0.15 | 0.09 | 0.05 | 0.05 | 1.3x faster |
+| 4g | 10 KB | 1.97 | 1.86 | 1.69 | 1.62 | 1.61 | 1.2x faster |
+| 4g | 100 KB | 3.85 | 2.47 | 3.17 | 1.75 | 1.75 | 2.2x faster |
+| 3g | 10 KB | 5.41 | 4.56 | 5.27 | 3.72 | 3.63 | 1.5x faster |
+| 3g | 100 KB | 13.74 | 7.13 | 12.23 | 4.12 | 4.09 | 3.4x faster |
+| edge | 10 KB | 19.81 | 12.23 | 18.16 | 8.33 | 7.66 | 2.6x faster |
+| edge | 100 KB | 95.76 | 33.43 | 84.13 | 12.16 | 11.16 | 8.6x faster |
+
+Observations:
+
+- **The slower the link, the bigger the gain.** On an EDGE-like link with a
+  100 KB context, SayOnce finishes 20 rounds in about 11 s vs 96 s for
+  JSON-RPC (8.6x) and 33 s for gzip-compressed JSON-RPC (3x).
+- **On fast links the gain is small.** With ideal localhost or 4G and a 10 KB
+  context, time is dominated by round trips, not bytes, so all systems are
+  close.
+- **Delta drives the time saving; binary encoding barely matters for time.**
+  `json-delta` is within about 10% of SayOnce on every link, while
+  `cbor-full` (binary, no delta) is almost as slow as JSON-RPC. Encoding still
+  saves bytes (see above), but once only deltas travel, messages are small
+  enough that latency is set by the RTT.
+- SayOnce's setup (sending the context once) is included in these totals.
+
+These runs used approximate token counts (tokenizer offline); bytes and times
+do not depend on the tokenizer. Re-run with tiktoken and, ideally, validate a
+few points with `tc netem` before the report.
+
