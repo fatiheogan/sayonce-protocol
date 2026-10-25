@@ -12,8 +12,9 @@ Files:
 
 | File | Contents |
 |---|---|
-| `sweep.csv` | all 6 systems, contexts 1/10/50/100 KB, 50 rounds, ideal network |
-| `net.csv` | 5 systems, contexts 10/100 KB, 20 rounds, profiles ideal/4g/3g/edge |
+| `sweep.csv` | all 7 systems (incl. `sayonce-raw`), contexts 1/10/50/100 KB, 50 rounds, ideal network |
+| `net.csv` | 5 systems, contexts 10/100 KB, 20 rounds, profiles ideal/4g/3g/edge, **3 repeats** |
+| `faults.csv` | SayOnce with a fault every 10 rounds, 6 fault kinds, 10/100 KB, ideal and 3g |
 | `analysis/analysis.md` | tables and findings, with figures `analysis/fig*.png` |
 
 ## Regenerating the final results
@@ -24,11 +25,21 @@ On a machine with internet access (for tiktoken), from the repository root:
 pip install -e ".[dev]"
 python -m sayonce.bench.harness --context-kb 1 10 50 100 --rounds 50 --repeats 3 --out results/final/sweep.csv
 python -m sayonce.bench.harness --systems jsonrpc jsonrpc-gzip cbor-full json-delta sayonce \
-    --context-kb 10 100 --rounds 20 --network ideal 4g 3g edge --out results/final/net.csv
-python -m sayonce.bench.analyze results/final/sweep.csv --network-csv results/final/net.csv --out results/final/analysis
+    --context-kb 10 100 --rounds 20 --repeats 5 --network ideal 4g 3g edge --out results/final/net.csv
+python -m sayonce.bench.faults --context-kb 10 100 --rounds 50 --fault-every 10 --network ideal 3g --out results/final/faults.csv
+python -m sayonce.bench.analyze results/final/sweep.csv --network-csv results/final/net.csv \
+    --faults-csv results/final/faults.csv --out results/final/analysis
 ```
 
 Check that `results/final/analysis/analysis.md` does **not** start with the
 "Preliminary" warning; that confirms tiktoken was used. The network sweep
 takes several minutes because full-context systems are slow on the EDGE
 profile (that is the point of the experiment).
+
+## Reading the network results
+
+With 3 runs, the differences on the **4G** profile fall inside the 95%
+confidence intervals, so they are not statistically clear there. On **3G**
+and **EDGE** the gap between full-context and delta systems is far larger than
+the intervals. The final run uses 5 repeats (about 25 minutes, mostly the
+EDGE profile).
