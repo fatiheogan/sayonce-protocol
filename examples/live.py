@@ -142,7 +142,17 @@ LOGO = [
     "███████║██║  ██║   ██║   ╚██████╔╝██║ ╚████║╚██████╗███████╗",
     "╚══════╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝╚══════╝",
 ]
-WIDTH = 62  # inner width of boxes; the logo is 60 columns
+LOGO_SMALL = [
+    "░█▀▀░█▀█░█░█░█▀█░█▀█░█▀▀░█▀▀",
+    "░▀▀█░█▀█░░█░░█░█░█░█░█░░░█▀▀",
+    "░▀▀▀░▀░▀░░▀░░▀▀▀░▀░▀░▀▀▀░▀▀▀",
+]
+MAX_WIDTH = 62  # inner width of boxes on a wide terminal
+
+
+def layout_width() -> int:
+    """Inner box width that fits the current terminal (re-read every time)."""
+    return max(30, min(MAX_WIDTH, term_width() - 6))
 
 
 def _lerp(stops: list[tuple[int, int, int]], t: float) -> tuple[int, int, int]:
@@ -188,13 +198,18 @@ def clear_screen() -> None:
 
 
 def rule(char_uni: str = "━", char_ascii: str = "=") -> str:
-    return gradient((char_uni if Style.uni else char_ascii) * (WIDTH + 2))
+    return gradient((char_uni if Style.uni else char_ascii) * (layout_width() + 2))
 
 
 def banner(title: str, subtitle: str = "") -> None:
     print()
     print("  " + rule())
-    print("   " + gradient(title, bold_text=True) + ("   " + dim(subtitle) if subtitle else ""))
+    if subtitle and len(title) + len(subtitle) + 4 <= layout_width():
+        print("   " + gradient(title, bold_text=True) + "   " + dim(subtitle))
+    else:
+        print("   " + gradient(title, bold_text=True))
+        if subtitle:
+            print("   " + dim(subtitle))
     print("  " + rule())
 
 
@@ -205,11 +220,18 @@ def box(rows: list[tuple[str, int]]) -> list[str]:
     else:
         tl, tr, bl, br, h, v = "+", "+", "+", "+", "-", "|"
     edge = lambda t: fg((70, 90, 150), t)  # noqa: E731
-    out = ["  " + edge(tl + h * WIDTH + tr)]
+    w = layout_width()
+    out = ["  " + edge(tl + h * w + tr)]
     for text, width in rows:
-        out.append("  " + edge(v) + text + " " * max(WIDTH - width, 0) + edge(v))
-    out.append("  " + edge(bl + h * WIDTH + br))
+        out.append("  " + edge(v) + text + " " * max(w - width, 0) + edge(v))
+    out.append("  " + edge(bl + h * w + br))
     return out
+
+
+def strip_length() -> int:
+    """Length of the link between the two agents so the whole line fits on one row."""
+    # 5 indent + "◉ Agent A " (10) + link + " Agent B ◉" (10) + 1 spare column
+    return max(8, min(34, term_width() - 26))
 
 
 def network_strip(frame: int | None = None, packet: str = "", total: int = 34) -> str:
@@ -237,32 +259,50 @@ def network_strip(frame: int | None = None, packet: str = "", total: int = 34) -
 
 def animate_link() -> None:
     """One big HELLO crosses the link, then a few tiny deltas."""
-    big = "█HELLO█" if Style.uni else "[HELLO]"
+    total = strip_length()
+    big = ("█HELLO█" if Style.uni else "[HELLO]") if total >= 14 else ("███" if Style.uni else "[H]")
     small = "•" if Style.uni else "*"
-    total = 34
     if Style.anim and sys.stdout.isatty():
-        for packet, step, delay in ((big, 2, 0.03), (small, 3, 0.012), (small, 3, 0.012), (small, 3, 0.012)):
+        step_big = max(1, total // 14)
+        step_small = max(1, total // 11)
+        for packet, step, delay in ((big, step_big, 0.03), (small, step_small, 0.012),
+                                    (small, step_small, 0.012), (small, step_small, 0.012)):
             for f in range(0, total - len(packet) + 1, step):
-                print("\r" + network_strip(f, packet, total), end="", flush=True)
+                # \r goes back to the start of the row and \033[2K clears it, so frames overwrite each other
+                print("\r\033[2K" + network_strip(f, packet, total), end="", flush=True)
                 time.sleep(delay)
-        print("\r" + network_strip(None, "", total))
+        print("\r\033[2K" + network_strip(None, "", total))
     else:
         print(network_strip(None, "", total))
     delta = "Δ" if Style.uni else "delta"
-    print("     " + dim("  1x ") + fg((255, 170, 60), "HELLO") + dim(" = the context, once")
-          + dim("    then ") + fg((120, 255, 170), delta) + dim(" = only changes"))
+    first = dim("1x ") + fg((255, 170, 60), "HELLO") + dim(" = the context, once")
+    then = dim("then ") + fg((120, 255, 170), delta) + dim(" = only changes")
+    if term_width() >= 64:
+        print("       " + first + "    " + then)
+    else:
+        print("       " + first)
+        print("       " + then)
 
 
 def print_logo() -> None:
-    wide = term_width() >= WIDTH + 6
-    if Style.uni and wide:
-        for row in LOGO:
-            print("   " + gradient(row))
-            if Style.anim and sys.stdout.isatty():
-                time.sleep(0.025)
+    cols = term_width()
+    delay = 0.025 if Style.anim and sys.stdout.isatty() else 0
+    if Style.uni and cols >= len(LOGO[0]) + 5:
+        rows = LOGO
+    elif Style.uni and cols >= len(LOGO_SMALL[0]) + 5:
+        rows = LOGO_SMALL
     else:
+        rows = []
         print("   " + gradient("S A Y O N C E", bold_text=True))
-    print("   " + dim("a token- and bandwidth-efficient protocol for AI agents"))
+    for row in rows:
+        print("   " + gradient(row))
+        time.sleep(delay)
+    for tagline in ("a token- and bandwidth-efficient protocol for AI agents",
+                    "token- and bandwidth-efficient agent protocol",
+                    "efficient agent protocol"):
+        if cols >= len(tagline) + 4:
+            print("   " + dim(tagline))
+            break
 
 
 def local_ips() -> list[str]:
@@ -716,12 +756,12 @@ def network_help() -> None:
     print()
 
 
-MENU = [
-    ("1", (0, 214, 255), "Start the server", "Agent B  ·  the worker"),
-    ("2", (90, 230, 160), "Start the client", "Agent A  ·  the requester"),
-    ("3", (255, 190, 80), "Network info", "this computer's IP addresses"),
-    ("4", (170, 120, 255), "Two-computer guide", "hotspot, firewall, Wireshark"),
-    ("q", (255, 95, 110), "Quit", ""),
+MENU = [  # key, badge colour, title, description, short description
+    ("1", (0, 214, 255), "Start the server", "Agent B  ·  the worker", "Agent B"),
+    ("2", (90, 230, 160), "Start the client", "Agent A  ·  the requester", "Agent A"),
+    ("3", (255, 190, 80), "Network info", "this computer's IP addresses", "my IP"),
+    ("4", (170, 120, 255), "Two-computer guide", "hotspot, firewall, Wireshark", "setup help"),
+    ("q", (255, 95, 110), "Quit", "", ""),
 ]
 
 
@@ -737,8 +777,12 @@ def print_menu(first: bool) -> None:
     print()
     rows: list[tuple[str, int]] = [("", 0)]
     sep = "·" if Style.uni else "-"
-    for key, rgb, title, desc in MENU:
-        desc = desc.replace("·", sep)
+    room = layout_width() - 2 - 3 - 2 - 20 - 1  # left pad, badge, gap, title column, right margin
+    long_fits = all(len(m[3]) <= room for m in MENU)
+    for key, rgb, title, desc, short_desc in MENU:
+        desc = desc.replace("·", sep) if long_fits else short_desc
+        if len(desc) > room:
+            desc = ""
         plain = f"  [{key}]  {title:<20}{desc}" if not Style.on else f"   {key}   {title:<20}{desc}"
         text = "  " + badge(rgb, key) + "  " + bold(f"{title:<20}") + dim(desc)
         rows.append((text, len(plain)))
@@ -747,7 +791,8 @@ def print_menu(first: bool) -> None:
         print(line)
     ips = local_ips()
     dot = "◦" if Style.uni else "-"
-    info = f"   {dot} host {socket.gethostname()}   {dot} IP {ips[0] if ips else 'offline'}   {dot} port {DEFAULT_PORT}"
+    info = f"   {dot} IP {ips[0] if ips else 'offline'}   {dot} port {DEFAULT_PORT}   {dot} host {socket.gethostname()}"
+    info = info[: term_width() - 1]
     print(dim(info))
     print()
 
