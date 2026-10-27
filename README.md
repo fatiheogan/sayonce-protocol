@@ -67,6 +67,39 @@ pytest
 python examples/demo.py --rounds 10 --context-kb 20   # two agents talking
 ```
 
+## Live demo: two terminals or two computers
+
+```bash
+python examples/live.py            # menu: start the server or the client
+```
+
+Or directly:
+
+```bash
+python examples/live.py server --port 7474                          # Agent B
+python examples/live.py client --host <server IP> --port 7474       # Agent A
+```
+
+The client sends the shared context once, then the tasks you type. Every
+round it also replays the same conversation over JSON-RPC/HTTP on the client
+machine and prints both byte counts side by side. Client commands:
+
+| command | what it does |
+|---|---|
+| any text | send it as a task |
+| `/set KEY VALUE` | change a shared variable; only the delta is sent |
+| `/auto N` | send N sample tasks, one per second |
+| `/drop` | cut the connection and resume the session without re-sending the context |
+| `/stats` | totals so far |
+| `/quit` | close the session |
+
+On two computers, put both on the same network (a phone hotspot is the safest;
+university Wi-Fi often isolates devices) and allow Python through the
+firewall on the server computer. In Wireshark, the filter `tcp.port == 7474`
+shows one large HELLO followed by small messages. Restarting the server and
+then typing `/drop` on the client shows recovery: the context is sent once
+more as a SNAPSHOT and the session continues.
+
 The protocol is specified in [docs/protocol.md](docs/protocol.md).
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the team workflow.
