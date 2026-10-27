@@ -63,13 +63,21 @@ SAMPLE_TASKS = [
 
 
 class Style:
-    on = True
+    on = True  # ANSI colours
+    uni = True  # box drawing and block characters
+    anim = True  # small start-up animation
 
     @classmethod
-    def enable(cls, on: bool) -> None:
+    def enable(cls, on: bool, anim: bool = True) -> None:
         cls.on = on
+        cls.anim = on and anim
         if on and os.name == "nt":
             os.system("")  # turns on ANSI escape codes in the Windows console
+        try:
+            "\u2588\u2557\u2501\u25c9\u25b8\u256d\u0394".encode(sys.stdout.encoding or "ascii")
+            cls.uni = True
+        except (UnicodeEncodeError, LookupError):
+            cls.uni = False
 
 
 def _c(code: str, text: str) -> str:
@@ -121,11 +129,140 @@ def stamp() -> str:
     return dim(time.strftime("[%H:%M:%S]"))
 
 
-def banner(title: str) -> None:
-    line = "=" * 64
-    print(cyan(line))
-    print(cyan("  " + title))
-    print(cyan(line))
+# ---------------------------------------------------------------------- look and feel
+
+# Brand gradient: cyan -> blue -> violet.
+GRADIENT = [(0, 214, 255), (64, 120, 255), (150, 80, 255)]
+
+LOGO = [
+    "███████╗ █████╗ ██╗   ██╗ ██████╗ ███╗   ██╗ ██████╗███████╗",
+    "██╔════╝██╔══██╗╚██╗ ██╔╝██╔═══██╗████╗  ██║██╔════╝██╔════╝",
+    "███████╗███████║ ╚████╔╝ ██║   ██║██╔██╗ ██║██║     █████╗  ",
+    "╚════██║██╔══██║  ╚██╔╝  ██║   ██║██║╚██╗██║██║     ██╔══╝  ",
+    "███████║██║  ██║   ██║   ╚██████╔╝██║ ╚████║╚██████╗███████╗",
+    "╚══════╝╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═══╝ ╚═════╝╚══════╝",
+]
+WIDTH = 62  # inner width of boxes; the logo is 60 columns
+
+
+def _lerp(stops: list[tuple[int, int, int]], t: float) -> tuple[int, int, int]:
+    t = min(max(t, 0.0), 1.0) * (len(stops) - 1)
+    i = min(int(t), len(stops) - 2)
+    f = t - i
+    a, b = stops[i], stops[i + 1]
+    return tuple(round(a[k] + (b[k] - a[k]) * f) for k in range(3))  # type: ignore[return-value]
+
+
+def fg(rgb: tuple[int, int, int], text: str) -> str:
+    return f"\033[38;2;{rgb[0]};{rgb[1]};{rgb[2]}m{text}\033[0m" if Style.on else text
+
+
+def badge(rgb: tuple[int, int, int], text: str) -> str:
+    """Dark text on a coloured background, like a key cap."""
+    if not Style.on:
+        return f"[{text}]"
+    return f"\033[1;38;2;15;18;30;48;2;{rgb[0]};{rgb[1]};{rgb[2]}m {text} \033[0m"
+
+
+def gradient(text: str, stops=GRADIENT, bold_text: bool = False) -> str:
+    if not Style.on:
+        return text
+    n = max(len(text) - 1, 1)
+    b = "1;" if bold_text else ""
+    out = []
+    for i, ch in enumerate(text):
+        r, g, bl = _lerp(stops, i / n)
+        out.append(f"\033[{b}38;2;{r};{g};{bl}m{ch}" if ch != " " else ch)
+    return "".join(out) + "\033[0m"
+
+
+def term_width() -> int:
+    import shutil
+
+    return shutil.get_terminal_size((80, 24)).columns
+
+
+def clear_screen() -> None:
+    if Style.on:
+        print("\033[2J\033[H", end="")
+
+
+def rule(char_uni: str = "━", char_ascii: str = "=") -> str:
+    return gradient((char_uni if Style.uni else char_ascii) * (WIDTH + 2))
+
+
+def banner(title: str, subtitle: str = "") -> None:
+    print()
+    print("  " + rule())
+    print("   " + gradient(title, bold_text=True) + ("   " + dim(subtitle) if subtitle else ""))
+    print("  " + rule())
+
+
+def box(rows: list[tuple[str, int]]) -> list[str]:
+    """Draw rows (coloured text, visible length) inside a rounded box."""
+    if Style.uni:
+        tl, tr, bl, br, h, v = "╭", "╮", "╰", "╯", "─", "│"
+    else:
+        tl, tr, bl, br, h, v = "+", "+", "+", "+", "-", "|"
+    edge = lambda t: fg((70, 90, 150), t)  # noqa: E731
+    out = ["  " + edge(tl + h * WIDTH + tr)]
+    for text, width in rows:
+        out.append("  " + edge(v) + text + " " * max(WIDTH - width, 0) + edge(v))
+    out.append("  " + edge(bl + h * WIDTH + br))
+    return out
+
+
+def network_strip(frame: int | None = None, packet: str = "", total: int = 34) -> str:
+    """Agent A ━━━━ Agent B with an optional packet at position `frame`."""
+    node = "◉" if Style.uni else "o"
+    line = "━" if Style.uni else "-"
+    left = fg((0, 214, 255), f"{node} Agent A ")
+    right = fg((150, 80, 255), f" Agent B {node}")
+    cells = []
+    for i in range(total):
+        if frame is not None and frame <= i < frame + len(packet):
+            cells.append(packet[i - frame])
+        else:
+            cells.append(line)
+    track = "".join(cells)
+    if frame is None or not Style.on:
+        track = fg((70, 90, 150), track)
+    else:
+        a, b = track[:frame], track[frame : frame + len(packet)]
+        c = track[frame + len(packet) :]
+        col = (255, 170, 60) if len(packet) > 2 else (120, 255, 170)
+        track = fg((70, 90, 150), a) + fg(col, b) + fg((70, 90, 150), c)
+    return "     " + left + track + right
+
+
+def animate_link() -> None:
+    """One big HELLO crosses the link, then a few tiny deltas."""
+    big = "█HELLO█" if Style.uni else "[HELLO]"
+    small = "•" if Style.uni else "*"
+    total = 34
+    if Style.anim and sys.stdout.isatty():
+        for packet, step, delay in ((big, 2, 0.03), (small, 3, 0.012), (small, 3, 0.012), (small, 3, 0.012)):
+            for f in range(0, total - len(packet) + 1, step):
+                print("\r" + network_strip(f, packet, total), end="", flush=True)
+                time.sleep(delay)
+        print("\r" + network_strip(None, "", total))
+    else:
+        print(network_strip(None, "", total))
+    delta = "Δ" if Style.uni else "delta"
+    print("     " + dim("  1x ") + fg((255, 170, 60), "HELLO") + dim(" = the context, once")
+          + dim("    then ") + fg((120, 255, 170), delta) + dim(" = only changes"))
+
+
+def print_logo() -> None:
+    wide = term_width() >= WIDTH + 6
+    if Style.uni and wide:
+        for row in LOGO:
+            print("   " + gradient(row))
+            if Style.anim and sys.stdout.isatty():
+                time.sleep(0.025)
+    else:
+        print("   " + gradient("S A Y O N C E", bold_text=True))
+    print("   " + dim("a token- and bandwidth-efficient protocol for AI agents"))
 
 
 def local_ips() -> list[str]:
@@ -269,7 +406,7 @@ async def run_server(port: int) -> None:
         print(red(f"Could not listen on port {port}: {exc}"))
         print("Is another server already running? Try another port with --port.")
         return
-    banner("SayOnce server  -  Agent B (worker, mock LLM)")
+    banner("SayOnce server", "Agent B  ·  worker with a mock LLM" if Style.uni else "Agent B - worker with a mock LLM")
     print(f"  Listening on port {bold(str(server.port))}")
     ips = local_ips()
     if ips:
@@ -338,7 +475,7 @@ class LiveClient:
 
     async def start(self) -> bool:
         ctx, dictionary = sample_context(self.context_kb)
-        banner("SayOnce client  -  Agent A")
+        banner("SayOnce client", "Agent A  ·  the requester" if Style.uni else "Agent A - the requester")
         print(f"  Connecting to {bold(f'{self.host}:{self.port}')} ...")
         try:
             self.session = await asyncio.wait_for(
@@ -579,17 +716,49 @@ def network_help() -> None:
     print()
 
 
+MENU = [
+    ("1", (0, 214, 255), "Start the server", "Agent B  ·  the worker"),
+    ("2", (90, 230, 160), "Start the client", "Agent A  ·  the requester"),
+    ("3", (255, 190, 80), "Network info", "this computer's IP addresses"),
+    ("4", (170, 120, 255), "Two-computer guide", "hotspot, firewall, Wireshark"),
+    ("q", (255, 95, 110), "Quit", ""),
+]
+
+
+def print_menu(first: bool) -> None:
+    if first:
+        clear_screen()
+        print()
+        print_logo()
+        print()
+        animate_link()
+    else:
+        banner("SayOnce live demo", "say the context once, then send only changes")
+    print()
+    rows: list[tuple[str, int]] = [("", 0)]
+    sep = "·" if Style.uni else "-"
+    for key, rgb, title, desc in MENU:
+        desc = desc.replace("·", sep)
+        plain = f"  [{key}]  {title:<20}{desc}" if not Style.on else f"   {key}   {title:<20}{desc}"
+        text = "  " + badge(rgb, key) + "  " + bold(f"{title:<20}") + dim(desc)
+        rows.append((text, len(plain)))
+    rows.append(("", 0))
+    for line in box(rows):
+        print(line)
+    ips = local_ips()
+    dot = "◦" if Style.uni else "-"
+    info = f"   {dot} host {socket.gethostname()}   {dot} IP {ips[0] if ips else 'offline'}   {dot} port {DEFAULT_PORT}"
+    print(dim(info))
+    print()
+
+
 def menu() -> None:
+    first = True
     while True:
-        print()
-        banner("SayOnce live demo  -  say the context once, then send only changes")
-        print("   1) Start the server   (Agent B, the worker)")
-        print("   2) Start the client   (Agent A, the requester)")
-        print("   3) Show this computer's IP addresses")
-        print("   4) How to run on two computers")
-        print("   q) Quit")
-        print()
-        choice = input("  Choose: ").strip().lower()
+        print_menu(first)
+        first = False
+        arrow = "❯" if Style.uni else ">"
+        choice = input("  " + gradient(arrow, bold_text=True) + " " + bold("Choose an option: ")).strip().lower()
         print()
         if choice == "1":
             port = ask_int("Port", DEFAULT_PORT)
@@ -613,9 +782,10 @@ def menu() -> None:
         elif choice == "4":
             network_help()
         elif choice in ("q", "quit", "exit"):
+            print(dim("  Bye."))
             return
         else:
-            print("  Please choose 1, 2, 3, 4 or q.")
+            print(red("  Please choose 1, 2, 3, 4 or q."))
 
 
 def _run(coro) -> None:
@@ -629,6 +799,7 @@ def _run(coro) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--no-color", action="store_true", help="plain text output")
+    p.add_argument("--no-anim", action="store_true", help="skip the start-up animation")
     sub = p.add_subparsers(dest="mode")
     ps = sub.add_parser("server", help="start Agent B")
     ps.add_argument("--port", type=int, default=DEFAULT_PORT)
@@ -640,7 +811,7 @@ def main() -> None:
     pc.add_argument("--no-compare", action="store_true", help="do not replay rounds over JSON-RPC")
     args = p.parse_args()
 
-    Style.enable(not args.no_color and sys.stdout.isatty())
+    Style.enable(not args.no_color and sys.stdout.isatty(), anim=not args.no_anim)
     if args.mode == "server":
         _run(run_server(args.port))
     elif args.mode == "client":
