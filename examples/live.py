@@ -557,9 +557,18 @@ class LiveClient:
 
     async def send(self, text: str, delta: list | None = None, intent: Intent = Intent.REQUEST) -> None:
         assert self.session
-        self.task_id += 1
-        tid = self.task_id
-        res = await self.session.request(intent, text, delta=delta, task_id=tid)
+        tid = self.task_id + 1
+        before = self.session.store.checkpoint()
+        try:
+            res = await self.session.request(intent, text, delta=delta, task_id=tid)
+        except (SessionError, ConnectionClosed, ConnectionError, OSError):
+            # The message never got an answer: take it back out of our context, so it does not
+            # become shared history. If the server did apply it, the resume finds the hashes
+            # differ and the client re-sends its context (SNAPSHOT), so both sides agree again.
+            self.session.store.restore(before)
+            print(yellow(f"  Message not delivered; it was not added to the shared context (still v{before.version})."))
+            raise
+        self.task_id = tid
         self.so_total = self._so_now()
         line = (f"  {cyan(f'#{tid}')} {short(text, 58)!r}\n"
                 f"     {green('SayOnce ')}  sent {bold(f'{fmt_bytes(res.bytes_sent):>9}')}   "
