@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/sayonce-banner.png" alt="SayOnce: say the context once, then send only changes" width="100%">
+</p>
+
 # SayOnce
 
 [![tests](https://github.com/fatiheogan/sayonce-protocol/actions/workflows/tests.yml/badge.svg)](https://github.com/fatiheogan/sayonce-protocol/actions/workflows/tests.yml)
