@@ -91,7 +91,9 @@ python examples/live.py server --port 7474                          # Agent B
 python examples/live.py client --host <server IP> --port 7474       # Agent A
 ```
 
-The client sends the shared context once, then the tasks you type. Every
+The client sends the shared context once, then the tasks you type. By default
+the context holds real MCP tool definitions (filesystem, git, playwright, ...);
+`--context travel` (or option 2 in the menu) uses the generated travel context. Every
 round it also replays the same conversation over JSON-RPC/HTTP on the client
 machine and prints both byte counts side by side. Client commands:
 
