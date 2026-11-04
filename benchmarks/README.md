@@ -30,6 +30,31 @@ Notes on fairness:
   filler that compressed 25x, which made the compressed baselines look
   unrealistically good.)
 
+## Workloads
+
+Every system receives exactly the same workload (`--workload`):
+
+| workload | context | messages |
+|---|---|---|
+| `travel` (default) | generated: a short system prompt and tool definitions written from a seeded vocabulary | generated travel-planning requests |
+| `mcp` | **real**: a coding-agent system prompt and the tool definitions of 12 public MCP servers (225 tools, 287 KB) | hand-written software-engineering requests that use those tools |
+
+The `mcp` tools were captured with `scripts/capture_mcp_tools.py`, which
+starts each server and stores its `tools/list` answer (name, description and
+input schema, exactly what an agent passes to its LLM). The servers, their
+versions and licences are listed in `src/sayonce/bench/data/mcp_tools.json`:
+time, fetch, filesystem, git, sequential-thinking, memory, context7,
+playwright, sentry, notion, firecrawl and atlassian. A context of N KB holds
+the system prompt plus the tools in that order until it reaches N KB, so a
+small context looks like a minimal developer setup and a large one like an
+agent with many integrations. Both workloads have the same shape: every 5th
+round is an INFORM, and every round changes one shared variable.
+
+Real tool definitions are JSON schemas with many repeated keys, so they
+compress better than the generated text (gzip: about 5-6x instead of 3x). That
+makes the compressed baselines stronger, which is why the `mcp` workload is
+the fairer test. Results: `results/final_mcp/`.
+
 ## First observations (localhost, mock LLM)
 
 Cumulative bytes, both directions:
@@ -134,7 +159,10 @@ bytes and one round trip.
 
 ## Network emulation
 
-Two ways to run the same experiments over a slower, lossy link:
+Two ways to run the same experiments over a slower, lossy link, plus a real
+network check (see [docs/real-network.md](../docs/real-network.md)):
+`scripts/netem_validate.sh` compares the emulator with kernel `tc netem`, and
+`python -m sayonce.bench.remote` runs the benchmark between two computers.
 
 **1. In-process proxy (any OS, default).** `sayonce/bench/netem.py` puts a TCP
 proxy between client and server that adds one-way delay, a bandwidth limit

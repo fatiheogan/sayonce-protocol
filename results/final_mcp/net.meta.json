@@ -1,0 +1,60 @@
+{
+  "args": {
+    "systems": [
+      "jsonrpc",
+      "jsonrpc-gzip",
+      "cbor-full",
+      "json-delta",
+      "sayonce"
+    ],
+    "context_kb": [
+      10,
+      100
+    ],
+    "rounds": 20,
+    "repeats": 5,
+    "workload": "mcp",
+    "seed": 0,
+    "external_netem": false,
+    "out": "results/final_mcp/net.csv"
+  },
+  "systems": [
+    "jsonrpc",
+    "jsonrpc-gzip",
+    "cbor-full",
+    "json-delta",
+    "sayonce"
+  ],
+  "tokenizer": "o200k_base",
+  "python": "3.13.17",
+  "platform": "Linux-6.18.44-fc-v233-x86_64-with-glibc2.39",
+  "started": "2026-11-04T15:22:05",
+  "duration_s": 1839.4,
+  "networks": [
+    {
+      "delay_ms": 0.0,
+      "loss": 0.0,
+      "bandwidth_mbps": 0.0,
+      "name": "ideal"
+    },
+    {
+      "delay_ms": 30,
+      "loss": 0.01,
+      "bandwidth_mbps": 20,
+      "name": "4g"
+    },
+    {
+      "delay_ms": 75,
+      "loss": 0.02,
+      "bandwidth_mbps": 2,
+      "name": "3g"
+    },
+    {
+      "delay_ms": 150,
+      "loss": 0.02,
+      "bandwidth_mbps": 0.2,
+      "name": "edge"
+    }
+  ],
+  "emulation": "in-process proxy (sayonce.bench.netem)"
+}

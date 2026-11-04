@@ -23,5 +23,8 @@ bench = ["zstandard>=0.22", "tiktoken>=0.7", "matplotlib>=3.8"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+sayonce = ["bench/data/*.json"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

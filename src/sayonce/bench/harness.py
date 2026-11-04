@@ -59,6 +59,8 @@ class RunConfig:
     repeat: int = 0
     net: NetConditions = NetConditions(name="ideal")
     external_netem: bool = False  # conditions applied outside (tc netem); only recorded
+    remote_host: str | None = None  # server runs on another computer (sayonce.bench.remote)
+    remote_port: int | None = None
 
 
 class PromptRecorder:
@@ -105,9 +107,13 @@ async def run_one(cfg: RunConfig, counter: TokenCounter | None = None, cache: _T
 
     recorder = PromptRecorder(WorkerAgent(MockLLM()))
     system: System = make_system(cfg.system)
-    await system.start(recorder)
+    if cfg.remote_host:
+        # The server and its worker run on the other computer; the LLM columns stay 0.
+        system.connect_host, system.connect_port = cfg.remote_host, cfg.remote_port
+    else:
+        await system.start(recorder)
     proxy: NetemProxy | None = None
-    if not cfg.net.is_ideal and not cfg.external_netem:
+    if not cfg.net.is_ideal and not cfg.external_netem and not cfg.remote_host:
         proxy = await NetemProxy(system.server_port, cfg.net, seed=cfg.seed * 100 + cfg.repeat).start()
         system.connect_port = proxy.port
     rows: list[dict[str, Any]] = []

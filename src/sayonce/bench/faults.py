@@ -39,7 +39,7 @@ from ..messages import MessageType
 from ..session import ClientSession, Server
 from .harness import parse_network
 from .netem import PROFILES, NetConditions, NetemProxy
-from .workload import travel_planning
+from .workload import WORKLOADS
 
 FAULTS = ["none", "corrupt_msg", "server_diverge", "client_diverge", "drop_resume", "server_restart"]
 COLUMNS = ["fault", "context_kb", "network", "round", "is_fault", "bytes_sent", "bytes_received",
@@ -54,10 +54,11 @@ def diverge(store: ContextStore, key: str = "fault_marker", value: Any = "diverg
 
 
 async def run_fault(kind: str, context_kb: int, rounds: int, fault_every: int,
-                    net: NetConditions = PROFILES["ideal"], seed: int = 0) -> list[dict[str, Any]]:
+                    net: NetConditions = PROFILES["ideal"], seed: int = 0,
+                    workload: str = "travel") -> list[dict[str, Any]]:
     if kind not in FAULTS:
         raise ValueError(f"unknown fault {kind!r}, choose from {FAULTS}")
-    wl = travel_planning(context_kb, rounds, seed=seed)
+    wl = WORKLOADS[workload](context_kb, rounds, seed=seed)
     server = await Server(WorkerAgent(), agent_id="agent-b").start()
     server_port = server.port
     proxy = None
@@ -179,6 +180,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--rounds", type=int, default=50)
     p.add_argument("--fault-every", type=int, default=10)
     p.add_argument("--network", nargs="+", type=parse_network, default=[PROFILES["ideal"]])
+    p.add_argument("--workload", default="travel", choices=list(WORKLOADS))
     p.add_argument("--out", type=Path, default=Path("results/faults.csv"))
     a = p.parse_args(argv)
 
@@ -188,7 +190,7 @@ def main(argv: list[str] | None = None) -> None:
             for kb in a.context_kb:
                 for kind in a.faults:
                     t0 = time.perf_counter()
-                    rows += await run_fault(kind, kb, a.rounds, a.fault_every, net)
+                    rows += await run_fault(kind, kb, a.rounds, a.fault_every, net, workload=a.workload)
                     print(f"  {net.label():>10s} {kind:15s} {kb:>4} KB  {time.perf_counter() - t0:5.1f}s",
                           file=sys.stderr)
         return rows
