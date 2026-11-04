@@ -32,6 +32,7 @@ from pathlib import Path
 try:
     from sayonce.agents import WorkerAgent, sample_context
     from sayonce.bench.systems import JsonRpcSystem
+    from sayonce.bench.workload import MCP_FILES, MCP_REQUESTS, mcp_context
     from sayonce.messages import DeltaOp, Intent
     from sayonce.session import ClientSession, Server, ServerSession, SessionError
     from sayonce.transport import ConnectionClosed, FramedConnection
@@ -39,6 +40,7 @@ except ImportError:  # running from a fresh clone without `pip install -e .`
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
     from sayonce.agents import WorkerAgent, sample_context
     from sayonce.bench.systems import JsonRpcSystem
+    from sayonce.bench.workload import MCP_FILES, MCP_REQUESTS, mcp_context
     from sayonce.messages import DeltaOp, Intent
     from sayonce.session import ClientSession, Server, ServerSession, SessionError
     from sayonce.transport import ConnectionClosed, FramedConnection
@@ -57,6 +59,24 @@ SAMPLE_TASKS = [
     "Check the visa requirements for the trip",
     "Send the final itinerary to the traveller",
 ]
+
+CONTEXTS = {
+    "mcp": "real MCP tool definitions (filesystem, git, playwright, notion, ...)",
+    "travel": "generated travel-agent context",
+}
+
+
+def make_context(kind: str, size_kb: int) -> tuple[dict, list[str]]:
+    return mcp_context(size_kb) if kind == "mcp" else sample_context(size_kb)
+
+
+def describe_tools(tools: dict) -> str:
+    """'31 tool definitions from 5 MCP servers (time, fetch, ...)' or '53 tool definitions'."""
+    servers = list(dict.fromkeys(name.split("__")[0] for name in tools if "__" in name))
+    text = f"{len(tools)} tool definitions"
+    if servers:
+        text += f" from {len(servers)} MCP servers ({', '.join(servers)})"
+    return text
 
 
 # ---------------------------------------------------------------------- output
@@ -381,7 +401,8 @@ class LiveServerSession(ServerSession):
         else:
             print(f"{stamp()} {cyan('HELLO')}    from {self.peer}   new session {self._sid()}")
             print(f"           received {bold(fmt_bytes(recv))} (compressed): the full shared context, {ctx_size} as JSON")
-            print(f"           tools: {len(self.store.ctx['tools'])}, vars: {self.store.ctx['vars']}")
+            print(f"           {describe_tools(self.store.ctx['tools'])}")
+            print(f"           vars: {self.store.ctx['vars']}")
             print(f"           {dim('this is the only time the context crosses the network')}")
         print()
 
@@ -499,8 +520,9 @@ def parse_value(text: str):
 
 
 class LiveClient:
-    def __init__(self, host: str, port: int, context_kb: int, compare: bool = True):
+    def __init__(self, host: str, port: int, context_kb: int, compare: bool = True, context: str = "mcp"):
         self.host, self.port, self.context_kb = host, port, context_kb
+        self.context = context
         self.compare = compare
         self.session: ClientSession | None = None
         self.baseline: JsonRpcSystem | None = None
@@ -514,7 +536,11 @@ class LiveClient:
         return self.so_conn_base + (st.bytes_sent + st.bytes_received if st else 0)
 
     async def start(self) -> bool:
-        ctx, dictionary = sample_context(self.context_kb)
+        try:
+            ctx, dictionary = make_context(self.context, self.context_kb)
+        except ValueError as exc:
+            print(red(f"  {exc}"))
+            return False
         banner("SayOnce client", "Agent A  ·  the requester" if Style.uni else "Agent A - the requester")
         print(f"  Connecting to {bold(f'{self.host}:{self.port}')} ...")
         try:
@@ -528,7 +554,8 @@ class LiveClient:
             return False
         st = self.session.conn.stats
         print(f"  {cyan('HELLO')} sent {bold(fmt_bytes(st.bytes_sent))} (compressed): shared context of "
-              f"{fmt_bytes(json_size(ctx))} as JSON, {len(ctx['tools'])} tool definitions")
+              f"{fmt_bytes(json_size(ctx))} as JSON")
+        print(f"  {describe_tools(ctx['tools'])}")
         print(f"  Session {self.session.session_id.hex()[:8]} with {self.session.peer_id}. "
               f"{dim('From now on only new messages and deltas are sent.')}")
 
@@ -547,7 +574,8 @@ class LiveClient:
     def print_help(self) -> None:
         print(bold("  Commands"))
         print("    <any text>         send it to Agent B as a task")
-        print("    /set KEY VALUE     change a shared variable, e.g. /set budget 450 (sent as a delta)")
+        example = "/set active_file src/app.py" if self.context == "mcp" else "/set budget 450"
+        print(f"    /set KEY VALUE     change a shared variable, e.g. {example} (sent as a delta)")
         print("    /auto N            send N sample tasks, one per second (default 5)")
         print("    /drop              cut the connection and resume the session")
         print("    /stats             totals so far")
@@ -667,7 +695,8 @@ class LiveClient:
             self.stats()
         elif cmd == "/set":
             if len(args) < 2:
-                print("  usage: /set KEY VALUE   e.g. /set budget 450")
+                print("  usage: /set KEY VALUE   e.g. " + ("/set active_file src/app.py" if self.context == "mcp"
+                                                       else "/set budget 450"))
             else:
                 await self.set_var(args[0], parse_value(args[1]))
         elif cmd == "/auto":
@@ -686,7 +715,12 @@ class LiveClient:
     async def auto(self, n: int, interval: float = 1.0) -> None:
         for i in range(n):
             k = self.task_id
-            if k % 3 == 2:  # now and then the requester lowers the budget a little
+            if self.context == "mcp":
+                if k % 3 == 2:  # now and then the requester switches to another file
+                    await self.set_var("active_file", MCP_FILES[k % len(MCP_FILES)])
+                else:
+                    await self.send(MCP_REQUESTS[k % len(MCP_REQUESTS)])
+            elif k % 3 == 2:  # now and then the requester lowers the budget a little
                 budget = self.session.store.ctx["vars"].get("budget") if self.session else None
                 await self.set_var("budget", budget - 25 if isinstance(budget, (int, float)) else 500)
             else:
@@ -695,8 +729,9 @@ class LiveClient:
                 await asyncio.sleep(interval)
 
 
-async def run_client(host: str, port: int, context_kb: int, auto: int | None, compare: bool) -> None:
-    client = LiveClient(host, port, context_kb, compare)
+async def run_client(host: str, port: int, context_kb: int, auto: int | None, compare: bool,
+                     context: str = "mcp") -> None:
+    client = LiveClient(host, port, context_kb, compare, context)
     if not await client.start():
         return
     try:
@@ -738,6 +773,19 @@ def ask_host(default: str = "127.0.0.1") -> str:
         if re.fullmatch(r"[A-Za-z0-9.\-:]+", value) and not value.endswith(":"):
             return value
         print(red(f"  {value!r} is not an address. Type an IP such as 192.168.1.23, or just press Enter."))
+
+
+def ask_context() -> str:
+    print("  Shared context:")
+    print(f"      1  {CONTEXTS['mcp']}")
+    print(f"      2  {CONTEXTS['travel']}")
+    while True:
+        value = ask("Choose", "1")
+        if value in ("1", "mcp"):
+            return "mcp"
+        if value in ("2", "travel"):
+            return "travel"
+        print(red("  Please choose 1 or 2."))
 
 
 def ask_int(prompt: str, default: int) -> int:
@@ -821,10 +869,11 @@ def menu() -> None:
         elif choice == "2":
             host = ask_host()
             port = ask_int("Port", DEFAULT_PORT)
+            context = ask_context()
             kb = ask_int("Shared context size in KB", 20)
             print(dim("  After connecting, type your tasks and commands at the  agent-a>  prompt."))
             print()
-            _run(run_client(host, port, kb, None, True))
+            _run(run_client(host, port, kb, None, True, context))
         elif choice == "3":
             ips = local_ips()
             if ips:
@@ -861,6 +910,8 @@ def main() -> None:
     pc.add_argument("--host", default="127.0.0.1")
     pc.add_argument("--port", type=int, default=DEFAULT_PORT)
     pc.add_argument("--context-kb", type=int, default=20)
+    pc.add_argument("--context", choices=list(CONTEXTS), default="mcp",
+                    help="real MCP tool definitions (default) or the generated travel context")
     pc.add_argument("--auto", type=int, metavar="N", help="send N sample tasks and exit")
     pc.add_argument("--no-compare", action="store_true", help="do not replay rounds over JSON-RPC")
     args = p.parse_args()
@@ -869,7 +920,7 @@ def main() -> None:
     if args.mode == "server":
         _run(run_server(args.port))
     elif args.mode == "client":
-        _run(run_client(args.host, args.port, args.context_kb, args.auto, not args.no_compare))
+        _run(run_client(args.host, args.port, args.context_kb, args.auto, not args.no_compare, args.context))
     else:
         try:
             menu()
