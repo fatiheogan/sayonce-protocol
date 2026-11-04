@@ -1,0 +1,42 @@
+{
+  "args": {
+    "systems": [
+      "all"
+    ],
+    "context_kb": [
+      1,
+      10,
+      50,
+      100
+    ],
+    "rounds": 50,
+    "repeats": 3,
+    "workload": "mcp",
+    "seed": 0,
+    "external_netem": false,
+    "out": "results/final_mcp/sweep.csv"
+  },
+  "systems": [
+    "jsonrpc",
+    "jsonrpc-gzip",
+    "jsonrpc-zstd",
+    "cbor-full",
+    "json-delta",
+    "sayonce-raw",
+    "sayonce"
+  ],
+  "tokenizer": "o200k_base",
+  "python": "3.13.17",
+  "platform": "Linux-6.18.44-fc-v233-x86_64-with-glibc2.39",
+  "started": "2026-11-04T14:49:10",
+  "duration_s": 23.8,
+  "networks": [
+    {
+      "delay_ms": 0.0,
+      "loss": 0.0,
+      "bandwidth_mbps": 0.0,
+      "name": "ideal"
+    }
+  ],
+  "emulation": "in-process proxy (sayonce.bench.netem)"
+}

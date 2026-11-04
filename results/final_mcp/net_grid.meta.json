@@ -1,0 +1,90 @@
+{
+  "args": {
+    "systems": [
+      "jsonrpc",
+      "jsonrpc-gzip",
+      "cbor-full",
+      "json-delta",
+      "sayonce"
+    ],
+    "context_kb": [
+      10,
+      100
+    ],
+    "rounds": 20,
+    "repeats": 3,
+    "workload": "mcp",
+    "seed": 0,
+    "external_netem": false,
+    "out": "results/final_mcp/net_grid.csv"
+  },
+  "systems": [
+    "jsonrpc",
+    "jsonrpc-gzip",
+    "cbor-full",
+    "json-delta",
+    "sayonce"
+  ],
+  "tokenizer": "o200k_base",
+  "python": "3.13.17",
+  "platform": "Linux-6.18.44-fc-v233-x86_64-with-glibc2.39",
+  "started": "2026-11-04T15:51:36",
+  "duration_s": 1769.7,
+  "networks": [
+    {
+      "delay_ms": 50.0,
+      "loss": 0.0,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 50.0,
+      "loss": 0.02,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 50.0,
+      "loss": 0.05,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 100.0,
+      "loss": 0.0,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 100.0,
+      "loss": 0.02,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 100.0,
+      "loss": 0.05,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 200.0,
+      "loss": 0.0,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 200.0,
+      "loss": 0.02,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    },
+    {
+      "delay_ms": 200.0,
+      "loss": 0.05,
+      "bandwidth_mbps": 0.0,
+      "name": ""
+    }
+  ],
+  "emulation": "in-process proxy (sayonce.bench.netem)"
+}

@@ -50,6 +50,13 @@ Agent A (client)                               Agent B (server)
 | JSON + gzip/zstd | context: 1–100 KB | LLM tokens |
 | Binary only (no delta) | loss: 0–5%, delay: 50–200 ms (`tc netem`) | latency, CPU |
 
+Contexts come in two workloads: generated text (`travel`) and the real tool
+definitions of 12 public MCP servers (`mcp`, see
+[benchmarks/README.md](benchmarks/README.md#workloads)). Results are in
+`results/final/` and `results/final_mcp/`. Real-network checks (kernel
+`tc netem`, two computers over 4G) are described in
+[docs/real-network.md](docs/real-network.md).
+
 ## Repository layout
 
 ```

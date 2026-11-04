@@ -71,6 +71,8 @@ class System(ABC):
     name: str = ""
     full_context: bool = True  # sends the whole context every round?
     connect_port: int | None = None  # set to a proxy port to route the client through a network emulator
+    connect_host: str = "127.0.0.1"  # where the client connects (another computer in remote runs)
+    listen_host: str = "127.0.0.1"  # where the server listens ("0.0.0.0" to accept other computers)
 
     @property
     @abstractmethod
@@ -161,11 +163,12 @@ class SayOnceSystem(System):
             self._reply_delta = list(resp.delta)  # for token accounting only
             return resp
 
-        self.server = await Server(recording, agent_id="agent-b", compress_threshold=self.compress_threshold).start()
+        self.server = await Server(recording, agent_id="agent-b", host=self.listen_host,
+                                   compress_threshold=self.compress_threshold).start()
 
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
-        assert self.server
-        self.client = await ClientSession.open("127.0.0.1", self._client_port(), agent_id, ctx, dictionary,
+        assert self.server or self.connect_port
+        self.client = await ClientSession.open(self.connect_host, self._client_port(), agent_id, ctx, dictionary,
                                                compress_threshold=self.compress_threshold)
         st = self.client.conn.stats
         return SetupResult(st.bytes_sent, st.bytes_received, info_sent={"context": ctx, "dictionary": dictionary})
@@ -217,7 +220,7 @@ class JsonRpcSystem(System):
 
     async def start(self, handler: Handler) -> None:
         self.handler = handler
-        self.http_server = await HttpServer(self._route).start()
+        self.http_server = await HttpServer(self._route, host=self.listen_host).start()
 
     async def _route(self, path: str, headers: dict, body: bytes) -> tuple[int, bytes, dict]:
         req = json.loads(body)
@@ -231,9 +234,9 @@ class JsonRpcSystem(System):
         return 200, dumps({"jsonrpc": "2.0", "id": req["id"], "result": result}), {}
 
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
-        assert self.http_server
+        assert self.http_server or self.connect_port
         self.store = ContextStore(ctx, Dictionary())
-        self.http = HttpClient("127.0.0.1", self._client_port(), self.encoding)
+        self.http = HttpClient(self.connect_host, self._client_port(), self.encoding)
         await self.http.connect()
         return SetupResult()  # stateless: nothing to set up
 
@@ -307,7 +310,7 @@ class CborFullSystem(System):
 
     async def start(self, handler: Handler) -> None:
         self.handler = handler
-        self._server = await asyncio.start_server(self._on_connection, "127.0.0.1", 0)
+        self._server = await asyncio.start_server(self._on_connection, self.listen_host, 0)
         self.port = self._server.sockets[0].getsockname()[1]
 
     async def _on_connection(self, reader, writer) -> None:
@@ -339,7 +342,7 @@ class CborFullSystem(System):
 
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
         self.store = ContextStore(ctx, Dictionary(dictionary))
-        self.conn = await FramedConnection.connect("127.0.0.1", self._client_port())
+        self.conn = await FramedConnection.connect(self.connect_host, self._client_port())
         self.conn.compress_threshold = None
         await self.conn.send(Frame(type=MessageType.HELLO, seq=0, ctx_v=0, body={0: agent_id, 1: dictionary}))
         self._seq = 1
@@ -418,7 +421,7 @@ class JsonDeltaSystem(System):
 
     async def start(self, handler: Handler) -> None:
         self.handler = handler
-        self.http_server = await HttpServer(self._route).start()
+        self.http_server = await HttpServer(self._route, host=self.listen_host).start()
 
     async def _route(self, path: str, headers: dict, body: bytes) -> tuple[int, bytes, dict]:
         req = json.loads(body)
@@ -450,9 +453,9 @@ class JsonDeltaSystem(System):
         return 200, dumps({"jsonrpc": "2.0", "id": req["id"], "result": result}), {}
 
     async def open(self, agent_id: str, ctx: dict, dictionary: list[str]) -> SetupResult:
-        assert self.http_server
+        assert self.http_server or self.connect_port
         self.store = ContextStore(ctx, Dictionary())
-        self.http = HttpClient("127.0.0.1", self._client_port())
+        self.http = HttpClient(self.connect_host, self._client_port())
         await self.http.connect()
         body = {"jsonrpc": "2.0", "id": next(self._ids), "method": "session/open",
                 "params": {"agent_id": agent_id, "context": ctx}}
