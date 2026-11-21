@@ -1,0 +1,13 @@
+system,workload,context_kb,network,delay_ms,loss,bandwidth_mbps,repeat,round,intent,bytes_sent,bytes_received,bytes_total,header_bytes,cum_bytes,wire_tokens_sent,wire_tokens_received,wire_tokens_total,cum_wire_tokens,llm_prompt_tokens,llm_prefix_cached_tokens,llm_uncached_tokens,llm_output_tokens,latency_ms,cpu_ms,net_segments,net_lost_segments,tokenizer
+jsonrpc,mcp,10,loopback-capture,0.37,0.0,0.0,0,0,SETUP,0,0,0,0,0,0,0,0,0,0,0,0,0,1.444,1.054,0,0,o200k_base
+jsonrpc,mcp,10,loopback-capture,0.37,0.0,0.0,0,1,REQUEST,11055,502,11557,380,11557,2298,90,2388,2388,0,0,0,0,1.343,0.351,0,0,o200k_base
+jsonrpc,mcp,10,loopback-capture,0.37,0.0,0.0,0,2,REQUEST,11409,502,11911,380,23468,2392,88,2480,4868,0,0,0,0,0.659,0.226,0,0,o200k_base
+jsonrpc,mcp,10,loopback-capture,0.37,0.0,0.0,0,3,REQUEST,11746,502,12248,380,35716,2481,91,2572,7440,0,0,0,0,0.571,0.208,0,0,o200k_base
+jsonrpc,mcp,10,loopback-capture,0.37,0.0,0.0,0,4,REQUEST,12088,502,12590,380,48306,2570,89,2659,10099,0,0,0,0,0.522,0.186,0,0,o200k_base
+jsonrpc,mcp,10,loopback-capture,0.37,0.0,0.0,0,5,INFORM,12402,201,12603,379,60909,2649,12,2661,12760,0,0,0,0,0.361,0.173,0,0,o200k_base
+sayonce,mcp,10,loopback-capture,0.37,0.0,0.0,0,0,SETUP,3247,41,3288,0,3288,2347,0,2347,2347,0,0,0,0,4.047,1.271,0,0,o200k_base
+sayonce,mcp,10,loopback-capture,0.37,0.0,0.0,0,1,REQUEST,152,245,397,0,3685,47,58,105,2452,0,0,0,0,0.558,0.196,0,0,o200k_base
+sayonce,mcp,10,loopback-capture,0.37,0.0,0.0,0,2,REQUEST,148,245,393,0,4078,45,56,101,2553,0,0,0,0,0.466,0.14,0,0,o200k_base
+sayonce,mcp,10,loopback-capture,0.37,0.0,0.0,0,3,REQUEST,142,245,387,0,4465,47,59,106,2659,0,0,0,0,0.448,0.133,0,0,o200k_base
+sayonce,mcp,10,loopback-capture,0.37,0.0,0.0,0,4,REQUEST,153,245,398,0,4863,46,57,103,2762,0,0,0,0,0.43,0.122,0,0,o200k_base
+sayonce,mcp,10,loopback-capture,0.37,0.0,0.0,0,5,INFORM,126,29,155,0,5018,38,12,50,2812,0,0,0,0,0.262,0.104,0,0,o200k_base

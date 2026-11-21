@@ -1,0 +1,3 @@
+SayOnce benchmark server on fatih-MacBook-Air.local, control port 7480
+jsonrpc        port 51409
+sayonce        port 51410

@@ -1,0 +1,48 @@
+{
+  "label": "loopback-capture",
+  "host": "127.0.0.1",
+  "server": "fatih-MacBook-Air.local",
+  "client": "fatih-MacBook-Air.local",
+  "rtt_ms_before": [
+    0.24,
+    0.38,
+    0.43,
+    0.35,
+    0.79,
+    0.73,
+    0.8,
+    0.74,
+    0.8,
+    0.87
+  ],
+  "rtt_ms_after": [
+    0.25,
+    0.29,
+    0.22,
+    0.25,
+    0.42,
+    0.37,
+    0.44,
+    0.38,
+    0.33,
+    0.33
+  ],
+  "emulation": "none: real network between two computers",
+  "tokenizer": "o200k_base",
+  "python": "3.12.16",
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "args": {
+    "systems": [
+      "jsonrpc",
+      "sayonce"
+    ],
+    "context_kb": [
+      10
+    ],
+    "rounds": 5,
+    "repeats": 1,
+    "workload": "mcp",
+    "seed": 0
+  },
+  "duration_s": 1.3
+}
