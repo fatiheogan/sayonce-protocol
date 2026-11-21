@@ -245,3 +245,21 @@ These runs used approximate token counts (tokenizer offline); bytes and times
 do not depend on the tokenizer. Re-run with tiktoken and, ideally, validate a
 few points with `tc netem` before the report.
 
+
+## Radio energy on a phone (RRC model)
+
+```bash
+python -m sayonce.bench.energy results/final_mcp/net.csv --out results/final_mcp/energy
+```
+
+Puts every run of a network CSV through the LTE / 3G radio state machine
+(promotion, transfer, tail; parameters from Huang et al., MobiSys 2012) and
+writes `energy.md`, `energy.csv` and `fig_energy_gap.png`. `--gaps` sets the
+time between rounds (agent thinking), which the harness does not measure.
+
+What it shows: on LTE with 100 KB contexts SayOnce uses 40% less radio energy
+than JSON-RPC when rounds follow each other at once, but only 4-8% once there
+are 5-15 s between rounds, because the radio's tail (about 11.6 s at 1 W)
+dominates and costs the same for every protocol. On slow links (3G, EDGE),
+where transfer time dominates, the saving stays large (about 47% on EDGE at a
+5 s gap).
