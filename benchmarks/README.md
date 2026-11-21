@@ -261,5 +261,5 @@ What it shows: on LTE with 100 KB contexts SayOnce uses 40% less radio energy
 than JSON-RPC when rounds follow each other at once, but only 4-8% once there
 are 5-15 s between rounds, because the radio's tail (about 11.6 s at 1 W)
 dominates and costs the same for every protocol. On slow links (3G, EDGE),
-where transfer time dominates, the saving stays large (about 47% on EDGE at a
+where transfer time dominates, the saving stays large (about 49% on EDGE at a
 5 s gap).
