@@ -55,7 +55,10 @@ definitions of 12 public MCP servers (`mcp`, see
 [benchmarks/README.md](benchmarks/README.md#workloads)). Results are in
 `results/final/` and `results/final_mcp/`. Real-network checks (kernel
 `tc netem`, two computers over 4G) are described in
-[docs/real-network.md](docs/real-network.md).
+[docs/real-network.md](docs/real-network.md); radio energy on a phone
+(LTE/3G RRC model) in [benchmarks/README.md](benchmarks/README.md); positioning
+against MCP/A2A, related work, security and limitations in
+[docs/discussion.md](docs/discussion.md).
 
 ## Repository layout
 
