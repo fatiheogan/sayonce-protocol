@@ -73,3 +73,23 @@ def test_mean_ci():
     assert abs(h - t95(2) * 2 / 3 ** 0.5) < 1e-9  # sd = 2
     assert mean_ci([5.0]) == (5.0, 0.0, 1)
     assert t95(1000) == 1.96 and t95(11) == t95(10)
+
+
+def test_repeats_do_not_change_shares_or_costs(tmp_path):
+    """Header share and LLM cost describe ONE conversation, however many repeats the CSV holds."""
+    one = asyncio.run(sweep(["jsonrpc", "json-delta", "sayonce"], [2], 4, progress=False))
+    three = []
+    for rep in range(3):
+        three += [{**r, "repeat": rep} for r in one]
+    write(one, tmp_path / "one.csv")
+    write(three, tmp_path / "three.csv")
+    a = build(tmp_path / "one.csv", tmp_path / "a", None, PRICES, None).read_text()
+    b = build(tmp_path / "three.csv", tmp_path / "b", None, PRICES, None).read_text()
+
+    def section(text, start, end):
+        return text[text.index(start):text.index(end)]
+
+    assert section(a, "HTTP header share", "## 2.") == section(b, "HTTP header share", "## 2.")
+    assert section(a, "## 5.", "LLM cost dominates") == section(b, "## 5.", "LLM cost dominates")
+    shares = [float(x) for x in section(b, "HTTP header share", "## 2.").replace("%", " ").split() if x.replace(".", "").isdigit() and "." in x]
+    assert shares and all(s < 100 for s in shares)

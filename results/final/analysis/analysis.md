@@ -66,10 +66,10 @@ HTTP header share of all bytes:
 
 | context | JSON-RPC | JSON + delta |
 |---|---|---|
-| 1 | 10.4 % | 103.9 % |
-| 10 | 5.7 % | 89.9 % |
-| 50 | 1.9 % | 56.1 % |
-| 100 | 1.0 % | 38.1 % |
+| 1 | 3.5 % | 34.6 % |
+| 10 | 1.9 % | 30.0 % |
+| 50 | 0.6 % | 18.7 % |
+| 100 | 0.3 % | 12.7 % |
 
 ## 2. Tokens exchanged between the agents
 
@@ -169,8 +169,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $1,003.69 |
-| with prefix caching | $217.28 |
+| prompt re-read every round, no cache | $334.56 |
+| with prefix caching | $72.43 |
 
 **10 KB context**
 
@@ -186,8 +186,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $1,670.53 |
-| with prefix caching | $298.24 |
+| prompt re-read every round, no cache | $556.84 |
+| with prefix caching | $99.41 |
 
 **50 KB context**
 
@@ -203,8 +203,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $4,671.29 |
-| with prefix caching | $667.05 |
+| prompt re-read every round, no cache | $1,557.10 |
+| with prefix caching | $222.35 |
 
 **100 KB context**
 
@@ -220,8 +220,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $8,422.26 |
-| with prefix caching | $1,125.09 |
+| prompt re-read every round, no cache | $2,807.42 |
+| with prefix caching | $375.03 |
 
 LLM cost dominates data cost by orders of magnitude. The protocol's direct saving is in transfer (bytes, time on slow links). Its LLM-side contribution is indirect: a stable, versioned context makes prefix caching reliable.
 

@@ -392,8 +392,9 @@ def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict,
             md += [line + ".\n"]
 
     # header share
-    hb = [[kb, f"{100 * sum(r['header_bytes'] for r in ideal if r['system'] == 'jsonrpc' and r['context_kb'] == kb) / max(1, at_round(ideal, 'jsonrpc', kb, 'cum_bytes', R)):.1f} %",
-           f"{100 * sum(r['header_bytes'] for r in ideal if r['system'] == 'json-delta' and r['context_kb'] == kb) / max(1, at_round(ideal, 'json-delta', kb, 'cum_bytes', R)):.1f} %"]
+    # one conversation (repeat 0), like cum_bytes: summing every repeat would count headers once per repeat
+    hb = [[kb, f"{100 * sum(series(ideal, 'jsonrpc', kb, 'header_bytes')[1]) / max(1, at_round(ideal, 'jsonrpc', kb, 'cum_bytes', R)):.1f} %",
+           f"{100 * sum(series(ideal, 'json-delta', kb, 'header_bytes')[1]) / max(1, at_round(ideal, 'json-delta', kb, 'cum_bytes', R)):.1f} %"]
           for kb in kbs if "json-delta" in systems and "jsonrpc" in systems]
     if hb:
         md += ["HTTP header share of all bytes:\n", md_table(["context", "JSON-RPC", "JSON + delta"], hb), ""]
@@ -459,7 +460,8 @@ def build(sweep: Path, out: Path, network_csv: Path | None, prices: dict,
            f"${prices['cached']}/M, output ${prices['out']}/M, data ${prices['gb']}/GB. "
            "**These are assumptions, not quotes.**\n"]
     for kb in kbs:
-        llm = {k: sum(r[k] for r in ideal if r["system"] == "sayonce" and r["context_kb"] == kb)
+        # tokens of ONE conversation (repeat 0); summing every repeat would multiply the cost by the repeat count
+        llm = {k: sum(series(ideal, "sayonce", kb, k)[1])
                for k in ("llm_prompt_tokens", "llm_uncached_tokens", "llm_prefix_cached_tokens", "llm_output_tokens")}
         no_cache = (llm["llm_prompt_tokens"] * prices["in"] + llm["llm_output_tokens"] * prices["out"]) / 1e6 * 1000
         cached = (llm["llm_uncached_tokens"] * prices["in"] + llm["llm_prefix_cached_tokens"] * prices["cached"]

@@ -66,10 +66,10 @@ HTTP header share of all bytes:
 
 | context | JSON-RPC | JSON + delta |
 |---|---|---|
-| 1 | 11.2 % | 105.2 % |
-| 10 | 6.0 % | 91.3 % |
-| 50 | 1.8 % | 54.8 % |
-| 100 | 1.0 % | 37.8 % |
+| 1 | 3.7 % | 35.1 % |
+| 10 | 2.0 % | 30.4 % |
+| 50 | 0.6 % | 18.3 % |
+| 100 | 0.3 % | 12.6 % |
 
 ## 2. Tokens exchanged between the agents
 
@@ -169,8 +169,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $1,026.59 |
-| with prefix caching | $222.95 |
+| prompt re-read every round, no cache | $342.20 |
+| with prefix caching | $74.32 |
 
 **10 KB context**
 
@@ -186,8 +186,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $1,805.77 |
-| with prefix caching | $320.25 |
+| prompt re-read every round, no cache | $601.92 |
+| with prefix caching | $106.75 |
 
 **50 KB context**
 
@@ -203,8 +203,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $5,859.03 |
-| with prefix caching | $815.87 |
+| prompt re-read every round, no cache | $1,953.01 |
+| with prefix caching | $271.96 |
 
 **100 KB context**
 
@@ -220,8 +220,8 @@ Example prices (set with --price-*): input $3.0/M tokens, cached input $0.3/M, o
 
 | LLM cost (same for every system) | per 1k conversations |
 |---|---|
-| prompt re-read every round, no cache | $10,789.53 |
-| with prefix caching | $1,419.48 |
+| prompt re-read every round, no cache | $3,596.51 |
+| with prefix caching | $473.16 |
 
 LLM cost dominates data cost by orders of magnitude. The protocol's direct saving is in transfer (bytes, time on slow links). Its LLM-side contribution is indirect: a stable, versioned context makes prefix caching reliable.
 
