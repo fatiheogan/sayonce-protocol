@@ -1,0 +1,52 @@
+{
+  "label": "4g",
+  "host": "100.74.132.17",
+  "server": "fatih",
+  "client": "fatih-MacBook-Air.local",
+  "rtt_ms_before": [
+    97.83,
+    81.7,
+    90.49,
+    90.12,
+    79.64,
+    111.16,
+    94.5,
+    81.43,
+    101.04,
+    115.83
+  ],
+  "rtt_ms_after": [
+    77.85,
+    83.84,
+    110.82,
+    70.39,
+    78.17,
+    156.62,
+    77.82,
+    82.63,
+    69.52,
+    534.99
+  ],
+  "emulation": "none: real network between two computers",
+  "tokenizer": "o200k_base",
+  "python": "3.12.16",
+  "platform": "macOS-26.6-arm64-arm-64bit",
+  "args": {
+    "systems": [
+      "jsonrpc",
+      "jsonrpc-gzip",
+      "cbor-full",
+      "json-delta",
+      "sayonce"
+    ],
+    "context_kb": [
+      10,
+      100
+    ],
+    "rounds": 20,
+    "repeats": 3,
+    "workload": "mcp",
+    "seed": 0
+  },
+  "duration_s": 205.6
+}

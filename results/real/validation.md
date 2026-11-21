@@ -26,25 +26,27 @@ JSON-RPC takes longer than SayOnce by emulator: 3.5x, netem: 4.8x.
 
 ## 4g, 10 KB context
 
-| system | emulator | netem | difference |
+| system | emulator | netem | real |
 |---|---|---|---|
-| jsonrpc | 1.87 s (1.80-2.05) | 1.90 s (1.81-2.56) | +2% |
-| jsonrpc-gzip | 1.78 s (1.48-1.99) | 1.49 s (1.48-1.62) | -16% |
-| json-delta | 1.52 s (1.51-1.77) | 1.55 s (1.53-1.82) | +2% |
-| sayonce | 1.53 s (1.49-1.75) | 1.79 s (1.51-2.06) | +17% |
+| jsonrpc | 1.87 s (1.80-2.05) | 1.90 s (1.81-2.56) | 3.09 s (2.61-4.71) |
+| jsonrpc-gzip | 1.78 s (1.48-1.99) | 1.49 s (1.48-1.62) | 2.71 s (2.61-5.33) |
+| cbor-full | - | - | 6.60 s (3.10-7.00) |
+| json-delta | 1.52 s (1.51-1.77) | 1.55 s (1.53-1.82) | 3.11 s (2.32-3.35) |
+| sayonce | 1.53 s (1.49-1.75) | 1.79 s (1.51-2.06) | 4.09 s (3.08-4.19) |
 
-JSON-RPC takes longer than SayOnce by emulator: 1.2x, netem: 1.1x.
+JSON-RPC takes longer than SayOnce by emulator: 1.2x, netem: 1.1x, real: 0.8x.
 
 ## 4g, 100 KB context
 
-| system | emulator | netem | difference |
+| system | emulator | netem | real |
 |---|---|---|---|
-| jsonrpc | 3.07 s (3.02-3.56) | 4.12 s (3.46-6.36) | +34% |
-| jsonrpc-gzip | 2.43 s (2.06-2.63) | 1.95 s (1.88-3.17) | -20% |
-| json-delta | 1.69 s (1.65-1.94) | 2.08 s (1.82-2.10) | +23% |
-| sayonce | 1.62 s (1.60-1.85) | 1.71 s (1.69-1.97) | +5% |
+| jsonrpc | 3.07 s (3.02-3.56) | 4.12 s (3.46-6.36) | 15.64 s (13.78-23.71) |
+| jsonrpc-gzip | 2.43 s (2.06-2.63) | 1.95 s (1.88-3.17) | 7.81 s (4.05-8.79) |
+| cbor-full | - | - | 14.80 s (12.56-17.52) |
+| json-delta | 1.69 s (1.65-1.94) | 2.08 s (1.82-2.10) | 3.95 s (3.07-4.22) |
+| sayonce | 1.62 s (1.60-1.85) | 1.71 s (1.69-1.97) | 3.81 s (3.55-4.90) |
 
-JSON-RPC takes longer than SayOnce by emulator: 1.9x, netem: 2.4x.
+JSON-RPC takes longer than SayOnce by emulator: 1.9x, netem: 2.4x, real: 4.1x.
 
 ## d100ms_l2%_inf, 10 KB context
 
