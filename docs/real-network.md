@@ -82,6 +82,31 @@ How much longer a 20-round JSON-RPC conversation takes than SayOnce (median):
   two packets, so netem loss hardly hit JSON-RPC and the two systems looked
   equal; `scripts/netem.sh` now sets a 1500-byte MTU, as on a real link.
 
+### Result: real 4G (21 Nov 2026)
+
+Client: MacBook Air on a phone hotspot (phone on mobile data, its Wi-Fi off).
+Server: Windows laptop on the GSB dormitory Wi-Fi. Connected through
+Tailscale (WireGuard). RTT median 92.5 ms before the run (80-116 ms).
+3 repeats, `mcp` workload, 20 rounds. Files: `results/real/remote_4g.*`,
+comparison in `results/real/validation.md` (column `real`).
+
+| context | JSON-RPC | JSON-RPC+gzip | JSON+delta | SayOnce | JSON-RPC / SayOnce |
+|---|---|---|---|---|---|
+| 10 KB | 3.09 s | 2.71 s | 3.11 s | 4.09 s | 0.8x |
+| 100 KB | 15.64 s | 7.81 s | 3.95 s | 3.81 s | **4.1x** |
+
+* With 100 KB contexts SayOnce finishes the conversation 4.1x faster than
+  JSON-RPC, more than the 4G emulator profile (1.9x) or kernel netem (2.4x)
+  predicted: the real link has a higher RTT and a slower uplink than the
+  profile (30 ms, 20 Mbit/s), and JSON-RPC re-uploads ~100 KB every round.
+* With 10 KB contexts there is no time gain: 20 round trips at ~90 ms
+  dominate, and run-to-run variation on the mobile link (JSON-RPC 2.6-4.7 s)
+  is larger than the difference. SayOnce's extra setup round (HELLO) costs one
+  RTT more. The byte saving still holds; the time saving needs large contexts
+  or slow links.
+* JSON+delta is as fast as SayOnce: the gain comes from sending the context
+  once, not from the binary encoding (same as the ablation).
+
 ## 2. Two computers over 4G
 
 `sayonce.bench.remote` runs the same benchmark with the server on one computer
