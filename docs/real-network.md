@@ -55,6 +55,33 @@ network is not touched, and the CSVs and `validation.md` appear in
 `results/real/` on the Mac. Docker Desktop runs the container in a small Linux
 VM, so note "Docker Desktop on macOS" next to the results in the report.
 
+### Result (Docker Desktop on macOS, Apple silicon, 3 repeats)
+
+Full tables: [`results/real/validation.md`](../results/real/validation.md).
+How much longer a 20-round JSON-RPC conversation takes than SayOnce (median):
+
+| network | context | emulator | kernel netem |
+|---|---|---|---|
+| 4G (30 ms, 1%, 20 Mbit/s) | 10 KB | 1.2x | 1.1x |
+| 4G | 100 KB | 1.9x | 2.4x |
+| 100 ms, 2% loss | 10 KB | 1.2x | 1.3x |
+| 100 ms, 2% loss | 100 KB | 1.7x | 4.5x |
+| EDGE (150 ms, 2%, 0.2 Mbit/s) | 10 KB | 2.7x | 2.9x |
+| EDGE | 100 KB | 11.5x | 12.7x |
+
+* Bytes and tokens are identical in both columns; only time depends on the
+  network.
+* SayOnce's own times agree within 1-10% between emulator and kernel.
+* Where they differ, the kernel shows a **larger** SayOnce advantage: real
+  TCP shrinks its congestion window and waits for timeouts after a loss, which
+  hurts the 100 KB JSON-RPC messages far more than the emulator's simple loss
+  rule does (JSON-RPC at 100 ms/2%/100 KB: 8.3 s emulated, 24.3 s kernel).
+  The emulator results in `results/final*` are therefore a conservative
+  (lower) estimate of the latency gain.
+* A first quick run with loopback's default 64 KB MTU sent a 100 KB message in
+  two packets, so netem loss hardly hit JSON-RPC and the two systems looked
+  equal; `scripts/netem.sh` now sets a 1500-byte MTU, as on a real link.
+
 ## 2. Two computers over 4G
 
 `sayonce.bench.remote` runs the same benchmark with the server on one computer
