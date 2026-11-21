@@ -40,6 +40,21 @@ kernel runs real TCP. Note the differences in the report either way.
 
 If you only want to shape the link by hand, see `scripts/netem.sh`.
 
+### On macOS (Docker)
+
+macOS has no `tc netem`, so the same script runs inside a Linux container.
+Install and open Docker Desktop, then from the repository root:
+
+```bash
+scripts/netem_docker.sh            # QUICK=1 scripts/netem_docker.sh for a 10-minute run
+```
+
+The first run builds the image (`docker/netem.Dockerfile`, roughly 100 MB to
+download). netem shapes the container's own loopback interface, so the Mac's
+network is not touched, and the CSVs and `validation.md` appear in
+`results/real/` on the Mac. Docker Desktop runs the container in a small Linux
+VM, so note "Docker Desktop on macOS" next to the results in the report.
+
 ## 2. Two computers over 4G
 
 `sayonce.bench.remote` runs the same benchmark with the server on one computer
