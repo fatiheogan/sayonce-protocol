@@ -71,7 +71,8 @@ How much longer a 20-round JSON-RPC conversation takes than SayOnce (median):
 
 * Bytes and tokens are identical in both columns; only time depends on the
   network.
-* SayOnce's own times agree within 1-10% between emulator and kernel.
+* SayOnce's own times differ by 1-18% between emulator and kernel (median 6%,
+  the kernel always the slower).
 * Where they differ, the kernel shows a **larger** SayOnce advantage: real
   TCP shrinks its congestion window and waits for timeouts after a loss, which
   hurts the 100 KB JSON-RPC messages far more than the emulator's simple loss

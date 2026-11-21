@@ -25,7 +25,10 @@ request follows the setup round (SayOnce HELLO, JSON-delta's first full
 context) immediately. The harness sends
 rounds back to back, so the gap is a parameter here, not a measurement. Idle
 power is left out (it is the same for every system). EDGE has no parameters in
-the paper; it uses the 3G values and is marked so in the table.
+the paper; it uses the 3G values and is marked so in the table. For 3G only the
+DCH tail (803.9 mW, 8.1 s) is modelled; the paper's following FACH tail
+(601.3 mW, 0.8 s) is left out, which lowers 3G/EDGE tail energy by the same
+amount for every protocol.
 """
 
 from __future__ import annotations

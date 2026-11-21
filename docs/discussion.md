@@ -51,7 +51,7 @@ LLM input tokens are identical for every protocol in our results
   bytes, not tokens; unlike SayOnce, it only exists on the device ↔ provider
   link and is provider-specific.
 * **Prompt caching** is what reduces token cost. Anthropic bills cache reads
-  at 0.1x the base input price (0.05x on its newest models) and 5-minute cache
+  at 0.1x the base input price (less on some newer models) and 5-minute cache
   writes at 1.25x; OpenAI caches prompts of 1,024 tokens or more
   automatically. Caching needs a stable prompt prefix. SayOnce keeps the
   rarely-changing parts (system prompt, tools) first and only appends history,
@@ -106,7 +106,7 @@ SayOnce as implemented has **no authentication or encryption**
   the messages we send; a real model's replies would be longer and vary.
 * **Emulated networks.** Main network results come from an in-process
   emulator. Kernel `tc netem` (Docker Desktop on macOS, 1500-byte MTU, 3
-  repeats) agrees for SayOnce within 1-10%, and shows a larger JSON-RPC
+  repeats) agrees for SayOnce within 1-18%, and shows a larger JSON-RPC
   penalty under loss (100 ms / 2% / 100 KB: 8.3 s emulated vs 24.3 s kernel),
   so the emulated latency gains are conservative. A real two-computer 4G
   measurement is still to be done (`docs/real-network.md`, section 2).
