@@ -1,0 +1,40 @@
+{
+  "args": {
+    "systems": [
+      "jsonrpc",
+      "jsonrpc-gzip",
+      "json-delta",
+      "sayonce"
+    ],
+    "context_kb": [
+      10,
+      100
+    ],
+    "rounds": 20,
+    "repeats": 3,
+    "workload": "mcp",
+    "seed": 0,
+    "external_netem": true,
+    "out": "results/real/netem_4g.csv"
+  },
+  "systems": [
+    "jsonrpc",
+    "jsonrpc-gzip",
+    "json-delta",
+    "sayonce"
+  ],
+  "tokenizer": "o200k_base",
+  "python": "3.12.16",
+  "platform": "Linux-7.0.14-linuxkit-aarch64-with-glibc2.41",
+  "started": "2026-11-21T09:15:59",
+  "duration_s": 54.8,
+  "networks": [
+    {
+      "delay_ms": 30,
+      "loss": 0.01,
+      "bandwidth_mbps": 20,
+      "name": "4g"
+    }
+  ],
+  "emulation": "tc netem (external)"
+}
