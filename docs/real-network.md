@@ -84,7 +84,8 @@ How much longer a 20-round JSON-RPC conversation takes than SayOnce (median):
 
 ### Result: real 4G (21 Nov 2026)
 
-Client: MacBook Air on a phone hotspot (phone on mobile data, its Wi-Fi off).
+Client: MacBook Air on the hotspot of a Xiaomi Redmi Note 12 (mobile data,
+its Wi-Fi off; operator and signal strength not recorded).
 Server: Windows laptop on the GSB dormitory Wi-Fi. Connected through
 Tailscale (WireGuard). RTT median 92.5 ms before the run (80-116 ms).
 3 repeats, `mcp` workload, 20 rounds. Files: `results/real/remote_4g.*`,
