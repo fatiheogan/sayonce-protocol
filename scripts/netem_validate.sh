@@ -32,7 +32,7 @@ if ! sudo tc qdisc replace dev lo root netem delay 1ms 2>/dev/null; then
   exit 1
 fi
 sudo tc qdisc del dev lo root 2>/dev/null || true
-trap 'sudo tc qdisc del dev lo root 2>/dev/null || true; echo "netem cleared on lo"' EXIT
+trap 'sudo tc qdisc del dev lo root 2>/dev/null || true; sudo ip link set dev lo mtu 65536 2>/dev/null || true; echo "netem cleared on lo"' EXIT
 
 mkdir -p "$OUT"
 for point in "${POINTS[@]}"; do

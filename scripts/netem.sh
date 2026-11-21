@@ -19,20 +19,26 @@
 #   one-way and RTT = 2 x DELAY_MS (same meaning as the Python emulator).
 # * It affects ALL loopback traffic on the machine while active. Always clear it.
 # * Loss here is real packet loss; Linux TCP retransmits, so it shows up as delay.
+# * apply/profile set the device MTU to $MTU (default 1500, like a real mobile
+#   link) and clear restores 65536 on lo. With lo's default 64 KB MTU a 100 KB
+#   message is only 2 packets, so loss would hit far fewer packets than on a
+#   real network or in the Python emulator (MSS 1460).
 
 set -euo pipefail
 DEV="${DEV:-lo}"
+MTU="${MTU:-1500}"
 
-usage() { sed -n '2,23p' "$0"; exit 1; }
+usage() { sed -n '2,25p' "$0"; exit 1; }
 
 apply() {
   local delay="$1" loss="$2" rate="$3"
   tc qdisc del dev "$DEV" root 2>/dev/null || true
+  ip link set dev "$DEV" mtu "$MTU"
   local args=(delay "${delay}ms")
   [[ "$loss" != "0" ]] && args+=(loss "${loss}%")
   [[ "$rate" != "0" ]] && args+=(rate "${rate}mbit")
   tc qdisc add dev "$DEV" root netem "${args[@]}"
-  echo "netem on $DEV: delay ${delay}ms loss ${loss}% rate ${rate}mbit (0 = unlimited)"
+  echo "netem on $DEV: delay ${delay}ms loss ${loss}% rate ${rate}mbit (0 = unlimited), mtu $MTU"
 }
 
 # keep in sync with sayonce/bench/netem.py PROFILES (delay_ms loss_% rate_mbit)
@@ -53,6 +59,8 @@ case "$1" in
   apply)   [[ $# -eq 4 ]] || usage; apply "$2" "$3" "$4" ;;
   profile) [[ $# -eq 2 ]] || usage; profile "$2" ;;
   show)    tc qdisc show dev "$DEV" ;;
-  clear)   tc qdisc del dev "$DEV" root 2>/dev/null || true; echo "netem cleared on $DEV" ;;
+  clear)   tc qdisc del dev "$DEV" root 2>/dev/null || true
+           [[ "$DEV" == "lo" ]] && ip link set dev lo mtu 65536
+           echo "netem cleared on $DEV" ;;
   *)       usage ;;
 esac
