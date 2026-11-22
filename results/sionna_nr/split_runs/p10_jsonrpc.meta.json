@@ -1,0 +1,41 @@
+{
+  "args": {
+    "profiles": "results/sionna_nr/profiles.json",
+    "out": "results/sionna_nr/split_runs/p10_jsonrpc.csv",
+    "systems": [
+      "jsonrpc"
+    ],
+    "context_kb": [
+      10,
+      100
+    ],
+    "rounds": 20,
+    "repeats": 3,
+    "workload": "mcp",
+    "gaps": [
+      0,
+      2,
+      5,
+      15
+    ],
+    "only": [
+      "nr-p10"
+    ],
+    "no_energy": true,
+    "merge": null
+  },
+  "networks": [
+    {
+      "delay_ms": 21.35,
+      "loss": 2.05e-06,
+      "bandwidth_mbps": 0.0585,
+      "name": "nr-p10"
+    }
+  ],
+  "emulation": "in-process proxy (sayonce.bench.netem)",
+  "link_profiles": "Sionna 5G NR uplink (sionna_nr/system_level.py)",
+  "python": "3.12.3",
+  "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+  "started": "2026-11-22T19:04:02",
+  "duration_s": 1018.3
+}

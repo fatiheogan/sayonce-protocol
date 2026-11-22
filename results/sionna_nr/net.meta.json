@@ -1,0 +1,226 @@
+{
+  "merged_from": [
+    "results/sionna_nr/split_runs/p10_jsonrpc.csv",
+    "results/sionna_nr/split_runs/p10_cbor.csv",
+    "results/sionna_nr/split_runs/p10_rest.csv",
+    "results/sionna_nr/split_runs/p50.csv",
+    "results/sionna_nr/split_runs/p90.csv"
+  ],
+  "parts": [
+    {
+      "args": {
+        "profiles": "results/sionna_nr/profiles.json",
+        "out": "results/sionna_nr/parts/p10_jsonrpc.csv",
+        "systems": [
+          "jsonrpc"
+        ],
+        "context_kb": [
+          10,
+          100
+        ],
+        "rounds": 20,
+        "repeats": 3,
+        "workload": "mcp",
+        "gaps": [
+          0,
+          2,
+          5,
+          15
+        ],
+        "only": [
+          "nr-p10"
+        ],
+        "no_energy": true,
+        "merge": null
+      },
+      "networks": [
+        {
+          "delay_ms": 21.35,
+          "loss": 2.05e-06,
+          "bandwidth_mbps": 0.0585,
+          "name": "nr-p10"
+        }
+      ],
+      "emulation": "in-process proxy (sayonce.bench.netem)",
+      "link_profiles": "Sionna 5G NR uplink (sionna_nr/system_level.py)",
+      "python": "3.12.3",
+      "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+      "started": "2026-11-22T19:04:02",
+      "duration_s": 1018.3
+    },
+    {
+      "args": {
+        "profiles": "results/sionna_nr/profiles.json",
+        "out": "results/sionna_nr/parts/p10_cbor.csv",
+        "systems": [
+          "cbor-full"
+        ],
+        "context_kb": [
+          10,
+          100
+        ],
+        "rounds": 20,
+        "repeats": 3,
+        "workload": "mcp",
+        "gaps": [
+          0,
+          2,
+          5,
+          15
+        ],
+        "only": [
+          "nr-p10"
+        ],
+        "no_energy": true,
+        "merge": null
+      },
+      "networks": [
+        {
+          "delay_ms": 21.35,
+          "loss": 2.05e-06,
+          "bandwidth_mbps": 0.0585,
+          "name": "nr-p10"
+        }
+      ],
+      "emulation": "in-process proxy (sayonce.bench.netem)",
+      "link_profiles": "Sionna 5G NR uplink (sionna_nr/system_level.py)",
+      "python": "3.12.3",
+      "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+      "started": "2026-11-22T19:02:18",
+      "duration_s": 842.9
+    },
+    {
+      "args": {
+        "profiles": "results/sionna_nr/profiles.json",
+        "out": "results/sionna_nr/parts/p10_rest.csv",
+        "systems": [
+          "jsonrpc-gzip",
+          "json-delta",
+          "sayonce"
+        ],
+        "context_kb": [
+          10,
+          100
+        ],
+        "rounds": 20,
+        "repeats": 3,
+        "workload": "mcp",
+        "gaps": [
+          0,
+          2,
+          5,
+          15
+        ],
+        "only": [
+          "nr-p10"
+        ],
+        "no_energy": true,
+        "merge": null
+      },
+      "networks": [
+        {
+          "delay_ms": 21.35,
+          "loss": 2.05e-06,
+          "bandwidth_mbps": 0.0585,
+          "name": "nr-p10"
+        }
+      ],
+      "emulation": "in-process proxy (sayonce.bench.netem)",
+      "link_profiles": "Sionna 5G NR uplink (sionna_nr/system_level.py)",
+      "python": "3.12.3",
+      "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+      "started": "2026-11-22T18:53:27",
+      "duration_s": 312.1
+    },
+    {
+      "args": {
+        "profiles": "results/sionna_nr/profiles.json",
+        "out": "results/sionna_nr/parts/p50.csv",
+        "systems": [
+          "jsonrpc",
+          "jsonrpc-gzip",
+          "cbor-full",
+          "json-delta",
+          "sayonce"
+        ],
+        "context_kb": [
+          10,
+          100
+        ],
+        "rounds": 20,
+        "repeats": 3,
+        "workload": "mcp",
+        "gaps": [
+          0,
+          2,
+          5,
+          15
+        ],
+        "only": [
+          "nr-p50"
+        ],
+        "no_energy": true,
+        "merge": null
+      },
+      "networks": [
+        {
+          "delay_ms": 21.51,
+          "loss": 7.88e-05,
+          "bandwidth_mbps": 3.3419,
+          "name": "nr-p50"
+        }
+      ],
+      "emulation": "in-process proxy (sayonce.bench.netem)",
+      "link_profiles": "Sionna 5G NR uplink (sionna_nr/system_level.py)",
+      "python": "3.12.3",
+      "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+      "started": "2026-11-22T18:49:25",
+      "duration_s": 70.7
+    },
+    {
+      "args": {
+        "profiles": "results/sionna_nr/profiles.json",
+        "out": "results/sionna_nr/parts/p90.csv",
+        "systems": [
+          "jsonrpc",
+          "jsonrpc-gzip",
+          "cbor-full",
+          "json-delta",
+          "sayonce"
+        ],
+        "context_kb": [
+          10,
+          100
+        ],
+        "rounds": 20,
+        "repeats": 3,
+        "workload": "mcp",
+        "gaps": [
+          0,
+          2,
+          5,
+          15
+        ],
+        "only": [
+          "nr-p90"
+        ],
+        "no_energy": true,
+        "merge": null
+      },
+      "networks": [
+        {
+          "delay_ms": 21.28,
+          "loss": 2.14e-08,
+          "bandwidth_mbps": 76.1177,
+          "name": "nr-p90"
+        }
+      ],
+      "emulation": "in-process proxy (sayonce.bench.netem)",
+      "link_profiles": "Sionna 5G NR uplink (sionna_nr/system_level.py)",
+      "python": "3.12.3",
+      "platform": "Linux-6.18.44-fc-v726-x86_64-with-glibc2.39",
+      "started": "2026-11-22T18:48:49",
+      "duration_s": 34.5
+    }
+  ]
+}

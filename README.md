@@ -60,6 +60,17 @@ definitions of 12 public MCP servers (`mcp`, see
 against MCP/A2A, related work, security and limitations in
 [docs/discussion.md](docs/discussion.md).
 
+### 5G NR links simulated with NVIDIA Sionna
+
+[`sionna_nr/`](sionna_nr) derives the links from a physical-layer simulation
+instead of hand-picked numbers: Sionna PHY simulates 5G NR PUSCH transport
+blocks over a 3GPP TDL channel (TBLER vs SNR per MCS), Sionna SYS drops 2000
+phones in a 3GPP UMa cell (path loss, uplink power control, link adaptation),
+and the cell-edge, median and good phones become link profiles for the same
+emulator. Method, assumptions and results:
+[docs/sionna-5g.md](docs/sionna-5g.md); data and figures in
+`results/sionna_nr/`. Needs `pip install -e ".[sionna]"` (Python 3.11+, PyTorch).
+
 ## Repository layout
 
 ```
@@ -67,6 +78,7 @@ src/sayonce/     protocol library (codec, messages, context, transport, session,
 examples/        runnable demos
 tests/           unit tests
 benchmarks/      benchmark harness and baselines
+sionna_nr/       5G NR uplink simulation with NVIDIA Sionna (PHY + SYS) feeding the emulator
 docs/            proposal, protocol spec (docs/protocol.md), report
 ```
 

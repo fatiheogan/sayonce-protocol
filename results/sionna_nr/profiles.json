@@ -1,0 +1,116 @@
+{
+  "profiles": [
+    {
+      "name": "nr-p10",
+      "delay_ms": 21.35,
+      "loss": 2.05e-06,
+      "bandwidth_mbps": 0.0585
+    },
+    {
+      "name": "nr-p50",
+      "delay_ms": 21.51,
+      "loss": 7.88e-05,
+      "bandwidth_mbps": 3.3419
+    },
+    {
+      "name": "nr-p90",
+      "delay_ms": 21.28,
+      "loss": 2.14e-08,
+      "bandwidth_mbps": 76.1177
+    }
+  ],
+  "assumptions": {
+    "band": "n78 TDD, 3.5 GHz, 100 MHz, 30 kHz SCS (273 PRBs)",
+    "tdd_pattern": "DDDSU: 1 uplink slot in 5 (uplink share 0.2, special slot not used for data)",
+    "slot_s": 0.0005,
+    "uplink_share": 0.2,
+    "ue": "1 antenna, 1 layer, power class 3 (23 dBm)",
+    "gnb_noise_figure_db": 5.0,
+    "gnb_rx_antennas": 16,
+    "link_level_rx_antennas": 2,
+    "power_control": "open loop TS 38.213 (Sionna SYS), P0 = -90 dBm per PRB, alpha = 1",
+    "scenario": "3GPP TR 38.901 UMa, single sector, ISD 500 m, 80 % indoor (O2I low-loss)",
+    "interference": "none (single sector); the cell edge is therefore optimistic",
+    "bler_target": 0.1,
+    "harq_max_tx": 4,
+    "core_one_way_delay_ms": 20.0,
+    "harq_rtt_ms": 2.5,
+    "candidate_prbs": [
+      1,
+      2,
+      4,
+      8,
+      17,
+      34,
+      68,
+      136,
+      273
+    ]
+  },
+  "stats": {
+    "ues": 2000,
+    "outage": 239,
+    "note": "profile percentiles are taken over served UEs (uplink rate > 0)",
+    "uplink_mbps_percentiles_served": {
+      "5": 0.03,
+      "10": 0.06,
+      "25": 0.23,
+      "50": 3.34,
+      "75": 36.26,
+      "90": 76.12,
+      "95": 87.76
+    },
+    "indoor_share": 0.794
+  },
+  "profile_details": {
+    "nr-p10": {
+      "percentile": 10,
+      "ue": 1323,
+      "distance_m": 214.7,
+      "indoor": true,
+      "pathloss_db": 141.7,
+      "prb": 2,
+      "snr_db": 0.8,
+      "mcs": 3,
+      "tbler": 0.038,
+      "name": "nr-p10",
+      "delay_ms": 21.35,
+      "loss": 2.05e-06,
+      "bandwidth_mbps": 0.0585
+    },
+    "nr-p50": {
+      "percentile": 50,
+      "ue": 632,
+      "distance_m": 132.7,
+      "indoor": true,
+      "pathloss_db": 124.7,
+      "prb": 68,
+      "snr_db": 2.5,
+      "mcs": 6,
+      "tbler": 0.094,
+      "name": "nr-p50",
+      "delay_ms": 21.51,
+      "loss": 7.88e-05,
+      "bandwidth_mbps": 3.3419
+    },
+    "nr-p90": {
+      "percentile": 90,
+      "ue": 1690,
+      "distance_m": 253.4,
+      "indoor": true,
+      "pathloss_db": 100.2,
+      "prb": 273,
+      "snr_db": 20.9,
+      "mcs": 24,
+      "tbler": 0.012,
+      "name": "nr-p90",
+      "delay_ms": 21.28,
+      "loss": 2.14e-08,
+      "bandwidth_mbps": 76.1177
+    }
+  },
+  "sionna": "2.2.0",
+  "seed": 7,
+  "drops": 40,
+  "ues_per_drop": 50
+}
