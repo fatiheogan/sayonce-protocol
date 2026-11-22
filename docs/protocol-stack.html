@@ -198,8 +198,8 @@ const LAYERS = [
   { id: "phy", n: "1", osi: "L1", name: "5G NR physical layer", what: "PUSCH: LDPC, QPSK–64QAM, OFDM, 3GPP channels", role: "sim",
     kicker: "Simulated with NVIDIA Sionna", title: "Sionna PHY + SYS: how fast can a phone send?",
     text: "Sionna PHY sends complete 5G NR uplink slots through a 3GPP TDL-C channel and counts failed transport blocks for 9 MCS values. Sionna SYS drops 2000 phones in a 3GPP UMa cell (n78, 3.5 GHz, 100 MHz) with path loss, uplink power control and link adaptation.",
-    bullets: ["10 % TBLER at −0.2 dB (MCS 3, QPSK) up to 18.2 dB (MCS 24, 64QAM)", "80 % of phones indoors, 23 dBm transmit power", "Cell edge, median and good phone become three link profiles"],
-    stats: [["0.06", "Mbit/s uplink, 10th percentile phone"], ["3.3", "Mbit/s, median phone"], ["76", "Mbit/s, 90th percentile phone"]],
+    bullets: ["10 % TBLER at −0.2 dB (MCS 3, QPSK) up to 18.2 dB (MCS 24, 64QAM)", "80 % of phones indoors, 23 dBm transmit power", "Cell edge, median and good phone (percentiles of served phones; 11.9 % in outage) become three link profiles"],
+    stats: [["3.3", "Mbit/s uplink, median served phone"], ["0.06", "Mbit/s, 10th percentile of served phones"], ["76", "Mbit/s, 90th percentile of served phones"]],
     where: "<code>sionna_nr/link_level.py</code>, <code>sionna_nr/system_level.py</code>" },
 ];
 const COLORS = { built: "var(--built)", used: "var(--used)", sim: "var(--sim)" };
@@ -208,7 +208,7 @@ const TAGS = { built: "built by us", used: "measured over", sim: "Sionna" };
 // One request of round 3 at 10 KB context (Wireshark capture): JSON-RPC 11,492 B, SayOnce about 150 B.
 const REQ = { json: 11492, say: 150 };
 const PROFILES = {
-  edge:   { label: "Cell edge (10th pct.)", mbps: 0.0585, e2e: { json: 298.684, say: 4.8216 } },
+  edge:   { label: "Cell edge (10th pct. of served)", mbps: 0.0585, e2e: { json: 298.684, say: 4.8216 } },
   median: { label: "Median phone",          mbps: 3.3419, e2e: { json: 6.230, say: 1.1017 } },
   good:   { label: "Good phone (90th pct.)", mbps: 76.1177, e2e: { json: 1.256, say: 1.0375 } },
 };
