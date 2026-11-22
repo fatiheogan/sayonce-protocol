@@ -71,6 +71,14 @@ emulator. Method, assumptions and results:
 [docs/sionna-5g.md](docs/sionna-5g.md); data and figures in
 `results/sionna_nr/`. Needs `pip install -e ".[sionna]"` (Python 3.11+, PyTorch).
 
+### Where SayOnce sits in the stack
+
+[docs/protocol-stack.html](docs/protocol-stack.html) is an interactive page for
+the presentation: an animation of one request going down the phone's stack,
+over the 5G uplink and up the gateway's stack (SayOnce or JSON-RPC), the layers
+with what we built, measured or simulated at each, and the per-layer cost of one
+request. Download it and open it in a browser; it works offline.
+
 ## Repository layout
 
 ```

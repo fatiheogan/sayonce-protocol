@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SayOnce in the Protocol Stack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout: the stack on the left (one row per layer, coloured by what we did there),
+     the selected layer's details on the right, one request traced through the stack below.
+     Single dark theme, taken from the SayOnce slide deck. */
+  --bg: #10192b;
+  --panel: #18233a;
+  --line: #2a3754;
+  --ink: #f5f3ee;
+  --muted: #a3acbf;
+  --built: #6e93f0;      /* designed and implemented by us */
+  --used: #8a93a6;       /* used as is, measured over */
+  --sim: #f08a4b;        /* simulated with NVIDIA Sionna */
+  --display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --body: "Inter", "Helvetica Neue", Arial, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--body); }
+body { padding: 28px clamp(16px, 4vw, 56px) 40px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(26px, 3.2vw, 44px); font-weight: 700; letter-spacing: -0.01em; }
+.sub { color: var(--muted); margin: 6px 0 0; font-size: 16px; max-width: 70ch; }
+.top { display: flex; flex-wrap: wrap; gap: 16px 32px; align-items: end; justify-content: space-between; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 14px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.dot { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+main { display: grid; grid-template-columns: minmax(300px, 1.05fr) minmax(320px, 1fr); gap: 28px; margin-top: 26px; }
+@media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+
+.stack { display: grid; gap: 8px; }
+.layer {
+  all: unset; box-sizing: border-box; cursor: pointer;
+  display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: 10px; background: var(--panel);
+  border: 1px solid var(--line); border-left-width: 1px; transition: background .15s, border-color .15s, transform .15s;
+}
+.layer:hover { background: #1e2b47; }
+.layer:focus-visible { outline: 2px solid var(--built); outline-offset: 2px; }
+.layer[aria-pressed="true"] { border-color: var(--c); background: color-mix(in srgb, var(--c) 16%, var(--panel)); }
+.num { font-family: var(--display); font-size: 13px; color: var(--muted); }
+.num b { display: block; font-size: 15px; color: var(--ink); font-weight: 500; }
+.name { font-family: var(--display); font-size: clamp(17px, 1.5vw, 21px); font-weight: 700; }
+.what { font-size: 14px; color: var(--muted); margin-top: 2px; }
+.tag { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; color: var(--bg); background: var(--c); white-space: nowrap; }
+.bracket { display: grid; grid-template-columns: 74px 1fr; gap: 14px; font-size: 13px; color: var(--muted); padding: 2px 16px; }
+.bracket em { font-style: normal; color: var(--sim); }
+
+.detail { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; align-self: start; position: sticky; top: 16px; }
+.detail .kicker { font-size: 13px; font-weight: 600; color: var(--c); text-transform: uppercase; letter-spacing: .06em; }
+.detail h2 { font-size: clamp(22px, 2vw, 28px); margin: 6px 0 12px; }
+.detail p { margin: 0 0 12px; line-height: 1.55; max-width: 62ch; }
+.detail ul { margin: 0 0 14px; padding-left: 20px; line-height: 1.5; }
+.detail li { margin-bottom: 6px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 6px; }
+.stat { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.stat .v { font-family: var(--display); font-size: 26px; font-weight: 700; color: var(--c); font-variant-numeric: tabular-nums; }
+.stat .l { font-size: 13px; color: var(--muted); margin-top: 2px; line-height: 1.35; }
+.where { font-size: 13px; color: var(--muted); margin-top: 14px; }
+.where code { color: var(--ink); font-size: 12.5px; }
+
+section.trace { margin-top: 34px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; }
+.trace-head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+.trace h3 { font-size: 22px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; gap: 3px; }
+.seg button { all: unset; cursor: pointer; padding: 6px 14px; border-radius: 999px; font-size: 14px; color: var(--muted); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); font-weight: 600; }
+.seg button:focus-visible { outline: 2px solid var(--built); outline-offset: 2px; }
+.rows { display: grid; gap: 10px; margin-top: 18px; }
+.row { display: grid; grid-template-columns: minmax(150px, 220px) 1fr 1fr; gap: 14px; align-items: center; }
+.row .lab { font-size: 14px; color: var(--muted); }
+.row .lab b { display: block; color: var(--ink); font-family: var(--display); font-size: 16px; }
+.bar { position: relative; height: 34px; border-radius: 6px; background: #0d1424; overflow: hidden; }
+.bar i { position: absolute; inset: 0 auto 0 0; border-radius: 6px; min-width: 3px; transition: width .5s ease; }
+.bar span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.colhead { display: grid; grid-template-columns: minmax(150px, 220px) 1fr 1fr; gap: 14px; font-size: 13px; color: var(--muted); margin-top: 16px; }
+.colhead b { color: var(--ink); font-family: var(--display); font-size: 15px; }
+.e2e { margin-top: 18px; display: flex; flex-wrap: wrap; gap: 10px 28px; font-size: 15px; color: var(--muted); align-items: baseline; }
+.e2e strong { font-family: var(--display); font-size: 30px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.e2e .x { color: var(--built); }
+@media (max-width: 640px) { .row, .colhead { grid-template-columns: 1fr; } .colhead span:first-child { display: none; } }
+
+/* ---- animated round trip ---- */
+section.anim { margin-top: 26px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px 18px; }
+.anim-head { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; justify-content: space-between; }
+.anim h3 { font-size: 22px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.btn { all: unset; cursor: pointer; padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); font-size: 14px; color: var(--ink); }
+.btn:hover { background: #1e2b47; }
+.btn:focus-visible { outline: 2px solid var(--built); outline-offset: 2px; }
+.svgwrap { overflow-x: auto; margin-top: 12px; }
+#anim-svg { width: 100%; min-width: 760px; height: auto; display: block; }
+#anim-svg text { font-family: var(--body); }
+.cap { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; align-items: baseline; margin-top: 10px; min-height: 64px; }
+.cap .step { font-family: var(--display); font-weight: 700; font-size: 15px; color: var(--c, var(--built)); white-space: nowrap; }
+.cap .txt { font-size: 16px; line-height: 1.5; max-width: 90ch; }
+.progress { display: flex; gap: 5px; margin-top: 10px; }
+.progress i { flex: 1; height: 4px; border-radius: 2px; background: var(--line); }
+.progress i.on { background: var(--muted); }
+.progress i.now { background: var(--c, var(--built)); }
+
+footer { margin-top: 22px; font-size: 13px; color: var(--muted); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="top">
+  <div>
+    <h1>Where SayOnce sits in the protocol stack</h1>
+    <p class="sub">SayOnce is an application-layer protocol. Everything below it is used as it is, and we measured over it or simulated it. Click a layer.</p>
+  </div>
+  <div class="legend" aria-label="Legend">
+    <span><i class="dot" style="background:var(--built)"></i>Designed and built by us</span>
+    <span><i class="dot" style="background:var(--used)"></i>Used as is, measured over</span>
+    <span><i class="dot" style="background:var(--sim)"></i>Simulated with NVIDIA Sionna</span>
+  </div>
+</div>
+
+
+<section class="anim" aria-labelledby="anim-title">
+  <div class="anim-head">
+    <h3 id="anim-title">Watch one request travel through the stack</h3>
+    <div class="controls">
+      <div class="seg" role="group" aria-label="Protocol" id="anim-mode">
+        <button type="button" data-m="say" aria-pressed="true">SayOnce</button>
+        <button type="button" data-m="json" aria-pressed="false">JSON-RPC</button>
+      </div>
+      <button class="btn" type="button" id="anim-play">Pause</button>
+      <button class="btn" type="button" id="anim-step">Next step</button>
+    </div>
+  </div>
+  <div class="svgwrap"><svg id="anim-svg" viewBox="0 0 1200 490" role="img" aria-label="A request goes down the phone's protocol stack, over the 5G radio link, and up the gateway's stack; SayOnce works at layer 7"></svg></div>
+  <div class="cap" id="anim-cap" aria-live="polite"><span class="step"></span><span class="txt"></span></div>
+  <div class="progress" id="anim-progress" aria-hidden="true"></div>
+</section>
+
+<main>
+  <div>
+    <div class="stack" id="stack" role="group" aria-label="Protocol layers"></div>
+  </div>
+  <aside class="detail" id="detail" aria-live="polite"></aside>
+</main>
+
+<section class="trace" aria-labelledby="trace-title">
+  <div class="trace-head">
+    <h3 id="trace-title">One request on its way down: round 3, 10 KB context</h3>
+    <div class="seg" role="group" aria-label="Phone position in the 5G cell" id="profiles"></div>
+  </div>
+  <div class="colhead"><span></span><span><b>JSON-RPC over HTTP</b> (MCP / A2A style)</span><span><b>SayOnce</b></span></div>
+  <div class="rows" id="rows"></div>
+  <div class="e2e" id="e2e"></div>
+</section>
+
+<footer>CSE 476/575 Mobile Communication and Networks, Fall 2026 · Ömer Faruk Gürsel, Fatih Emre Oğan, Enes Ersoy · github.com/fatiheogan/sayonce-protocol</footer>
+
+<script>
+const LAYERS = [
+  { id: "agent", n: "", osi: "above L7", name: "AI agents", what: "LLM + agent logic, the shared context", role: "used", tag: "mock LLM",
+    kicker: "Above the protocol", title: "The agents and their context",
+    text: "Two agents work on a multi-round task. Their shared context is the system prompt, the tool definitions, the history and some variables: 1 to 100 KB in our workload, built from the real tool definitions of 12 public MCP servers.",
+    bullets: ["The receiving model still reads the full prompt every round, so LLM input tokens do not change.", "SayOnce keeps the prompt prefix stable: 97 % of the input tokens can be served by a provider prompt cache."],
+    stats: [["1–100 KB", "context per conversation"], ["97 %", "of LLM input is a cacheable prefix"]],
+    where: "mock LLM in <code>src/sayonce/agents.py</code>" },
+  { id: "app", n: "7", osi: "L7", name: "Application protocol", what: "SayOnce instead of JSON-RPC / HTTP", role: "built",
+    kicker: "Our contribution", title: "SayOnce: say the context once, then send only changes",
+    text: "Today MCP and A2A send JSON-RPC over HTTP, and a stateless receiver gets the whole context again every round. SayOnce sends it once in HELLO and then only deltas, checked by a hash.",
+    bullets: ["Length-prefixed CBOR frames, 8 message types, 4 intents", "Shared versioned context, hash-checked deltas, RESYNC and session resume", "zstd for large frames (the HELLO)"],
+    stats: [["27–147×", "fewer bytes than JSON-RPC after 50 rounds"], ["10–29×", "fewer than gzip-compressed JSON-RPC"], ["60 kB → 5 kB", "Wireshark, 5 rounds at 10 KB"]],
+    where: "<code>src/sayonce/</code>, specification in <code>docs/protocol.md</code>" },
+  { id: "tcp", n: "4", osi: "L4", name: "Transport", what: "TCP (TLS 1.3 in a deployment)", role: "used",
+    kicker: "Used as is", title: "TCP: loss turns into delay",
+    text: "SayOnce runs over any reliable byte stream. TCP retransmits lost segments, so packet loss shows up as extra time. Large JSON-RPC requests span many segments and suffer most.",
+    bullets: ["In-process emulator: rate, delay, loss per segment", "Linux kernel tc netem (MTU 1500): confirms the emulator, which is conservative", "Real 4G between two computers over a phone hotspot"],
+    stats: [["4.1×", "faster on real 4G, 100 KB context"], ["12.3×", "faster on emulated EDGE, 100 KB"]],
+    where: "<code>src/sayonce/bench/netem.py</code>, <code>scripts/netem_docker.sh</code>" },
+  { id: "ip", n: "3", osi: "L3", name: "Network", what: "IP (WireGuard tunnel in the real 4G test)", role: "used",
+    kicker: "Used as is", title: "IP: nothing to change here",
+    text: "SayOnce needs no change below the application layer. In the real 4G test both computers were behind NAT, so Tailscale (WireGuard) connected them; its tunnel header is the same for every system.",
+    bullets: ["Median RTT 92.5 ms over the 4G hotspot", "Packet capture on the loopback interface with tshark / Wireshark"],
+    stats: [["92.5 ms", "median RTT, real 4G"], ["28 vs 34", "packets, JSON-RPC vs SayOnce (5 rounds)"]],
+    where: "<code>docs/real-network.md</code>" },
+  { id: "l2", n: "2", osi: "L2", name: "5G NR link layer", what: "PDCP / RLC / MAC with HARQ, TDD scheduling", role: "sim",
+    kicker: "Modelled from Sionna results", title: "HARQ hides radio errors from TCP",
+    text: "A failed transport block is retransmitted by HARQ up to 4 times before TCP notices. With link adaptation at a 10 % block error target, TCP sees almost no loss: errors become a little extra delay.",
+    bullets: ["Residual loss = TBLER⁴, at most 10⁻⁴", "One-way delay 21–22 ms: core 20 ms + uplink slot wait + HARQ", "TDD pattern DDDSU: one uplink slot in five"],
+    stats: [["≤ 10⁻⁴", "loss left for TCP"], ["~21 ms", "one-way delay of the 5G links"]],
+    where: "<code>sionna_nr/mapping.py</code>" },
+  { id: "phy", n: "1", osi: "L1", name: "5G NR physical layer", what: "PUSCH: LDPC, QPSK–64QAM, OFDM, 3GPP channels", role: "sim",
+    kicker: "Simulated with NVIDIA Sionna", title: "Sionna PHY + SYS: how fast can a phone send?",
+    text: "Sionna PHY sends complete 5G NR uplink slots through a 3GPP TDL-C channel and counts failed transport blocks for 9 MCS values. Sionna SYS drops 2000 phones in a 3GPP UMa cell (n78, 3.5 GHz, 100 MHz) with path loss, uplink power control and link adaptation.",
+    bullets: ["10 % TBLER at −0.2 dB (MCS 3, QPSK) up to 18.2 dB (MCS 24, 64QAM)", "80 % of phones indoors, 23 dBm transmit power", "Cell edge, median and good phone become three link profiles"],
+    stats: [["0.06", "Mbit/s uplink, 10th percentile phone"], ["3.3", "Mbit/s, median phone"], ["76", "Mbit/s, 90th percentile phone"]],
+    where: "<code>sionna_nr/link_level.py</code>, <code>sionna_nr/system_level.py</code>" },
+];
+const COLORS = { built: "var(--built)", used: "var(--used)", sim: "var(--sim)" };
+const TAGS = { built: "built by us", used: "measured over", sim: "Sionna" };
+
+// One request of round 3 at 10 KB context (Wireshark capture): JSON-RPC 11,492 B, SayOnce about 150 B.
+const REQ = { json: 11492, say: 150 };
+const PROFILES = {
+  edge:   { label: "Cell edge (10th pct.)", mbps: 0.0585, e2e: { json: 298.684, say: 4.8216 } },
+  median: { label: "Median phone",          mbps: 3.3419, e2e: { json: 6.230, say: 1.1017 } },
+  good:   { label: "Good phone (90th pct.)", mbps: 76.1177, e2e: { json: 1.256, say: 1.0375 } },
+};
+let current = "app", profile = "edge";
+
+const stack = document.getElementById("stack");
+LAYERS.forEach((L, i) => {
+  if (L.id === "l2") {
+    const b = document.createElement("div");
+    b.className = "bracket";
+    b.innerHTML = "<span></span><span>Below IP the network emulator stands in for the link. Its rate, delay and loss come from <em>the Sionna simulation</em>:</span>";
+    stack.appendChild(b);
+  }
+  const btn = document.createElement("button");
+  btn.className = "layer"; btn.type = "button"; btn.id = "layer-" + L.id;
+  btn.style.setProperty("--c", COLORS[L.role]);
+  btn.innerHTML = `<span class="num">${L.osi}<b>${L.n ? "Layer " + L.n : "App"}</b></span>
+    <span><span class="name">${L.name}</span><div class="what">${L.what}</div></span>
+    <span class="tag">${L.tag || TAGS[L.role]}</span>`;
+  btn.addEventListener("click", () => select(L.id));
+  stack.appendChild(btn);
+});
+
+function select(id) {
+  current = id;
+  const L = LAYERS.find(x => x.id === id);
+  document.querySelectorAll(".layer").forEach(b => b.setAttribute("aria-pressed", String(b.id === "layer-" + id)));
+  const d = document.getElementById("detail");
+  d.style.setProperty("--c", COLORS[L.role]);
+  d.innerHTML = `<div class="kicker">${L.kicker}</div><h2>${L.title}</h2><p>${L.text}</p>
+    <ul>${L.bullets.map(b => `<li>${b}</li>`).join("")}</ul>
+    <div class="stats">${L.stats.map(s => `<div class="stat"><div class="v">${s[0]}</div><div class="l">${s[1]}</div></div>`).join("")}</div>
+    <div class="where">In the repository: ${L.where}</div>`;
+}
+
+function fmtBytes(b) { return b >= 1000 ? (b / 1000).toFixed(1) + " KB" : b + " B"; }
+function fmtTime(s) { return s >= 1 ? s.toFixed(2) + " s" : s >= 0.001 ? (s * 1000).toFixed(1) + " ms" : (s * 1e6).toFixed(0) + " µs"; }
+
+function renderTrace() {
+  const P = PROFILES[profile];
+  const seg = n => Math.ceil(n / 1460);
+  const air = n => n * 8 / (P.mbps * 1e6);
+  const rows = [
+    ["App message", "bytes the protocol sends", REQ.json, REQ.say, fmtBytes, "var(--built)"],
+    ["TCP segments", "1460-byte segments", seg(REQ.json), seg(REQ.say), v => v + (v === 1 ? " segment" : " segments"), "var(--used)"],
+    ["5G uplink airtime", `at ${P.mbps < 1 ? (P.mbps * 1000).toFixed(1) + " kbit/s" : P.mbps.toFixed(1) + " Mbit/s"} (Sionna)`, air(REQ.json), air(REQ.say), fmtTime, "var(--sim)"],
+  ];
+  document.getElementById("rows").innerHTML = rows.map(([lab, sub, a, b, f, c]) => {
+    const m = Math.max(a, b);
+    return `<div class="row"><div class="lab"><b>${lab}</b>${sub}</div>
+      <div class="bar"><i style="width:${100 * a / m}%;background:${c}"></i><span>${f(a)}</span></div>
+      <div class="bar"><i style="width:${100 * b / m}%;background:${c}"></i><span>${f(b)}</span></div></div>`;
+  }).join("");
+  const e = P.e2e;
+  document.getElementById("e2e").innerHTML =
+    `<span>Whole conversation, 20 rounds, 100 KB context, ${P.label.toLowerCase()}:</span>
+     <span>JSON-RPC <strong>${e.json < 10 ? e.json.toFixed(2) : e.json.toFixed(0)} s</strong></span>
+     <span>SayOnce <strong>${e.say.toFixed(2)} s</strong></span>
+     <span><strong class="x">${(e.json / e.say).toFixed(1)}×</strong> faster</span>`;
+  document.querySelectorAll("#profiles button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.p === profile)));
+}
+
+const segEl = document.getElementById("profiles");
+Object.entries(PROFILES).forEach(([k, P]) => {
+  const b = document.createElement("button");
+  b.type = "button"; b.dataset.p = k; b.textContent = P.label;
+  b.addEventListener("click", () => { profile = k; renderTrace(); });
+  segEl.appendChild(b);
+});
+
+select(current);
+renderTrace();
+
+// ---------- animated round trip ----------
+(function () {
+  const svg = document.getElementById("anim-svg");
+  const NS = "http://www.w3.org/2000/svg";
+  const ROWS = [
+    ["Agent", "LLM + agent logic", "used"],
+    ["L7  Application", "SayOnce works here", "built"],
+    ["L4  Transport", "TCP", "used"],
+    ["L3  Network", "IP", "used"],
+    ["L2  5G NR MAC / RLC", "HARQ, scheduling", "sim"],
+    ["L1  5G NR PHY", "PUSCH: LDPC, QAM, OFDM", "sim"],
+  ];
+  const C = { built: "#6e93f0", used: "#8a93a6", sim: "#f08a4b", ink: "#f5f3ee", muted: "#a3acbf", line: "#2a3754", band: "#141e33" };
+  const rowY = i => 58 + i * 58;            // top of row i
+  const rowC = i => rowY(i) + 24;           // centre of row i
+  const LANE = { A: [40, 400], B: [800, 1160] };
+  const X = { A: 220, B: 980 };
+  const RADIO_Y = 446;
+  const MODE = {
+    say:  { payW: 58,  label: "MSG Δ", bytes: "150 B", segs: 1, air: "20.5 ms", travel: 1500 },
+    json: { payW: 200, label: "POST /mcp · full context", bytes: "11.5 KB", segs: 8, air: "1.57 s", travel: 4200 },
+  };
+  const HDR = [["TCP", C.used], ["IP", C.used], ["MAC", C.sim]];
+
+  const STEPS = [
+    { side: "A", row: 0, h: 0, t: "Agent A",
+      say: "Agent A on the phone has its next request. Since the last round, only one shared variable changed.",
+      json: "Agent A on the phone has its next request. Since the last round, only one shared variable changed." },
+    { side: "A", row: 1, h: 0, t: "Layer 7",
+      say: "SayOnce sends only the change: a MSG frame with the intent, the new step, a delta and the context hash. 150 bytes.",
+      json: "JSON-RPC over HTTP sends the whole context again: system prompt, every tool definition, the history. 11.5 KB." },
+    { side: "A", row: 2, h: 1, t: "Layer 4",
+      say: "TCP adds its header. The frame fits in one segment.",
+      json: "TCP adds its header and needs 8 segments of 1,460 bytes for this request." },
+    { side: "A", row: 3, h: 2, t: "Layer 3",
+      say: "IP adds the addresses. Nothing below layer 7 knows about SayOnce: no change is needed there.",
+      json: "IP adds the addresses, once per segment." },
+    { side: "A", row: 4, h: 3, t: "Layer 2",
+      say: "5G NR MAC schedules the bytes into an uplink slot; HARQ retransmits a failed block up to 4 times (Sionna: residual loss ≤ 10⁻⁴).",
+      json: "5G NR MAC schedules every segment into uplink slots; HARQ retransmits failed blocks up to 4 times." },
+    { side: "A", row: 5, h: 3, phy: true, t: "Layer 1",
+      say: "The physical layer codes and modulates it into a PUSCH slot (LDPC, QPSK to 64QAM, OFDM): the part we simulated with Sionna.",
+      json: "The physical layer codes and modulates all of it into PUSCH slots: the part we simulated with Sionna." },
+    { side: "A", row: "radio", h: 3, phy: true, t: "Radio",
+      say: "Over the air to the base station, then through the core network to the gateway.",
+      json: "Over the air to the base station, then through the core network to the gateway." },
+    { travel: true, t: "Uplink",
+      say: "At the cell edge (58.5 kbit/s uplink, Sionna) one SayOnce request takes 20.5 ms on air.",
+      json: "At the cell edge (58.5 kbit/s uplink, Sionna) the 8 segments take 1.57 s on air: every round." },
+    { side: "B", row: "radio", h: 3, phy: true, t: "Base station",
+      say: "The base station receives the slot and checks the transport block CRC.",
+      json: "The base station receives the slots and checks every transport block CRC." },
+    { side: "B", row: 5, h: 3, phy: true, t: "Layer 1",
+      say: "Demodulated and LDPC-decoded.", json: "Demodulated and LDPC-decoded." },
+    { side: "B", row: 4, h: 2, t: "Layer 2",
+      say: "CRC passes; HARQ and RLC deliver the bytes in order.", json: "CRC passes; HARQ and RLC deliver the bytes in order." },
+    { side: "B", row: 3, h: 1, t: "Layer 3", say: "IP header removed.", json: "IP headers removed." },
+    { side: "B", row: 2, h: 0, t: "Layer 4",
+      say: "TCP hands the frame to the application.", json: "TCP reassembles 8 segments into one request." },
+    { side: "B", row: 1, h: 0, t: "Layer 7", check: true,
+      say: "SayOnce applies the delta to its copy of the context and checks the hash: both copies match, version n+1. ✓",
+      json: "The server parses the whole context again. Nothing checks that both sides still agree." },
+    { side: "B", row: 0, h: 0, t: "Agent B",
+      say: "Agent B reads the same full prompt as with JSON-RPC. Only the link carried 77 times fewer bytes.",
+      json: "Agent B reads the full prompt. Next round, the whole context crosses the link again." },
+  ];
+
+  // static drawing
+  const el = (tag, attrs, text) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text != null) e.textContent = text; return e; };
+  const bg = el("g"), dyn = el("g");
+  svg.append(bg, dyn);
+  bg.append(el("text", { x: 220, y: 34, "text-anchor": "middle", fill: C.ink, "font-size": 17, "font-weight": 600 }, "Phone · Agent A"));
+  bg.append(el("text", { x: 980, y: 34, "text-anchor": "middle", fill: C.ink, "font-size": 17, "font-weight": 600 }, "Gateway · Agent B"));
+  bg.append(el("text", { x: 600, y: 34, "text-anchor": "middle", fill: C.muted, "font-size": 14 }, "layer"));
+  const bands = [];
+  ROWS.forEach((r, i) => {
+    const col = C[r[2]];
+    for (const side of ["A", "B"]) {
+      const [x0, x1] = LANE[side];
+      const b = el("rect", { x: x0, y: rowY(i), width: x1 - x0, height: 48, rx: 8, fill: C.band, stroke: i === 1 ? col : C.line, "stroke-width": i === 1 ? 2 : 1 });
+      bg.append(b); bands.push({ side, row: i, el: b, col });
+    }
+    bg.append(el("text", { x: 600, y: rowC(i) - 3, "text-anchor": "middle", fill: col, "font-size": 15, "font-weight": 600 }, r[0]));
+    bg.append(el("text", { x: 600, y: rowC(i) + 15, "text-anchor": "middle", fill: C.muted, "font-size": 12.5 }, r[1]));
+  });
+  // "SayOnce works here" marker on layer 7
+  const glow = el("rect", { x: 412, y: rowY(1) - 4, width: 376, height: 56, rx: 10, fill: "none", stroke: C.built, "stroke-width": 2, "stroke-dasharray": "6 5" });
+  bg.append(glow);
+  // radio + core band
+  bg.append(el("rect", { x: 40, y: RADIO_Y - 22, width: 1120, height: 44, rx: 22, fill: C.band, stroke: C.line }));
+  const radioBand = bg.lastChild;
+  bg.append(el("text", { x: 600, y: RADIO_Y + 5, "text-anchor": "middle", fill: C.muted, "font-size": 13 }, "5G NR uplink  →  base station  →  core network  →  gateway"));
+  // antenna icon
+  const ant = el("g", { stroke: C.sim, "stroke-width": 2, fill: "none" });
+  ant.append(el("path", { d: "M330 474 L340 440 L350 474 M334 460 L346 460" }), el("path", { d: "M326 438 a14 14 0 0 1 28 0 M320 434 a20 20 0 0 1 40 0" }));
+  bg.append(ant);
+  for (let i = 0; i < 2; i++) bg.append(el("line", { x1: X.A, x2: X.A, y1: rowY(5) + 48, y2: RADIO_Y - 22, stroke: C.line, "stroke-dasharray": "3 4" }));
+  bg.append(el("line", { x1: X.B, x2: X.B, y1: rowY(5) + 48, y2: RADIO_Y - 22, stroke: C.line, "stroke-dasharray": "3 4" }));
+
+  let mode = "say", idx = 1, t0 = performance.now(), playing = true, prev = null;
+  const reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (reduce) playing = false;
+  const MOVE = 650, HOLD = 1700;
+  const posOf = s => ({ x: X[s.side], y: s.row === "radio" ? RADIO_Y : rowC(s.row) });
+  const ease = u => u < .5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
+
+  function packet(x, y, h, phy, check) {
+    const M = MODE[mode];
+    const hw = 36, H = 30;
+    const W = M.payW + h * hw;
+    let cx = x - W / 2;
+    const g = el("g");
+    for (let k = h - 1; k >= 0; k--) {           // outermost header on the left
+      const [lab, col] = HDR[k];
+      g.append(el("rect", { x: cx, y: y - H / 2, width: hw - 2, height: H, rx: 4, fill: col }));
+      g.append(el("text", { x: cx + (hw - 2) / 2, y: y + 4, "text-anchor": "middle", fill: "#10192b", "font-size": 11, "font-weight": 700 }, lab));
+      cx += hw;
+    }
+    g.append(el("rect", { x: cx, y: y - H / 2, width: M.payW, height: H, rx: 4, fill: C.built, stroke: phy ? C.sim : "none", "stroke-width": phy ? 3 : 0 }));
+    if (M.payW > 80) g.append(el("text", { x: cx + M.payW / 2, y: y + 4, "text-anchor": "middle", fill: "#10192b", "font-size": 12, "font-weight": 700 }, M.label));
+    else g.append(el("text", { x: cx + M.payW / 2, y: y + 4, "text-anchor": "middle", fill: "#10192b", "font-size": 12, "font-weight": 700 }, M.label));
+    g.append(el("text", { x: x, y: y - H / 2 - 6, "text-anchor": "middle", fill: C.ink, "font-size": 12.5, "font-weight": 600 },
+      M.bytes + (h >= 1 && M.segs > 1 ? `  ·  ${M.segs} segments` : "")));
+    if (check) g.append(el("text", { x: x + W / 2 + 16, y: y + 6, fill: mode === "say" ? "#7fd18b" : C.muted, "font-size": 18, "font-weight": 700 }, mode === "say" ? "hash ✓" : "?"));
+    return g;
+  }
+
+  function render(now) {
+    const s = STEPS[idx];
+    const el_ = now - t0;
+    dyn.replaceChildren();
+    bands.forEach(b => { b.el.setAttribute("fill", C.band); });
+    radioBand.setAttribute("stroke", C.line);
+    if (s.travel) {
+      const M = MODE[mode];
+      const dur = M.travel, gap = M.segs > 1 ? dur * 0.55 / (M.segs - 1) : 0, one = dur - gap * (M.segs - 1);
+      radioBand.setAttribute("stroke", C.sim);
+      for (let k = 0; k < M.segs; k++) {
+        const u = Math.min(1, Math.max(0, (el_ - k * gap) / one));
+        const x = X.A + (X.B - X.A) * u;
+        dyn.append(el("rect", { x: x - 13, y: RADIO_Y - 9, width: 26, height: 18, rx: 4, fill: C.sim, opacity: u >= 1 ? 0.35 : 1 }));
+      }
+      dyn.append(el("text", { x: 600, y: RADIO_Y - 30, "text-anchor": "middle", fill: C.sim, "font-size": 14, "font-weight": 600 },
+        `cell edge, 58.5 kbit/s: ${M.air} on air`));
+      if (playing && el_ > dur + 600) advance(now);
+    } else {
+      const to = posOf(s);
+      const from = prev ? posOf(prev) : to;
+      const u = reduce || !playing && el_ > MOVE ? 1 : Math.min(1, el_ / MOVE);
+      const e = ease(u);
+      const x = from.x + (to.x - from.x) * e, y = from.y + (to.y - from.y) * e;
+      if (s.row === "radio") radioBand.setAttribute("stroke", C.sim);
+      else bands.filter(b => b.side === s.side && b.row === s.row).forEach(b => b.el.setAttribute("fill", "#22345a"));
+      dyn.append(packet(x, y, s.h, s.phy, s.check && u >= 1));
+      if (playing && el_ > MOVE + HOLD + (s.check ? 900 : 0) + (idx === STEPS.length - 1 ? 1200 : 0)) advance(now);
+    }
+    caption(s);
+    requestAnimationFrame(render);
+  }
+  function advance(now) {
+    prev = STEPS[idx].travel ? STEPS[idx - 1] : STEPS[idx];
+    idx = (idx + 1) % STEPS.length;
+    if (idx === 0) prev = null;
+    if (STEPS[idx].side === "B" && STEPS[idx].row === "radio") prev = { side: "B", row: "radio" };
+    t0 = now;
+  }
+  const capEl = document.getElementById("anim-cap"), prog = document.getElementById("anim-progress");
+  STEPS.forEach(() => prog.append(document.createElement("i")));
+  let lastCap = "";
+  function caption(s) {
+    const key = idx + mode;
+    if (key === lastCap) return;
+    lastCap = key;
+    const col = s.travel || s.phy || (s.row === 4) ? C.sim : s.row === 1 ? C.built : C.muted;
+    capEl.style.setProperty("--c", col); prog.style.setProperty("--c", col);
+    capEl.querySelector(".step").textContent = `${idx + 1}/${STEPS.length} · ${s.t}`;
+    capEl.querySelector(".txt").textContent = s[mode];
+    [...prog.children].forEach((b, i) => { b.className = i < idx ? "on" : i === idx ? "now" : ""; });
+  }
+  document.querySelectorAll("#anim-mode button").forEach(b => b.addEventListener("click", () => {
+    mode = b.dataset.m;
+    document.querySelectorAll("#anim-mode button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    idx = 0; prev = null; t0 = performance.now(); lastCap = "";
+  }));
+  const playBtn = document.getElementById("anim-play");
+  playBtn.textContent = playing ? "Pause" : "Play";
+  playBtn.addEventListener("click", () => { playing = !playing; playBtn.textContent = playing ? "Pause" : "Play"; if (!STEPS[idx].travel) t0 = performance.now() - MOVE; });
+  document.getElementById("anim-step").addEventListener("click", () => { advance(performance.now()); });
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>
